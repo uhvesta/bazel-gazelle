@@ -3,6 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "resolve",
     srcs = [
+        "cache.go",
         "config.go",
         "index.go",
     ],
@@ -36,7 +37,11 @@ alias(
 
 go_test(
     name = "resolve_test",
-    srcs = ["resolve_test.go"],
+    srcs = [
+        "cache_bench_test.go",
+        "cache_test.go",
+        "resolve_test.go",
+    ],
     embed = [":resolve"],
     deps = [
         "//config",

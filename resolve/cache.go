@@ -16,9 +16,10 @@ limitations under the License.
 package resolve
 
 import (
+	"bufio"
 	"crypto/sha256"
+	"encoding/gob"
 	"encoding/hex"
-	"encoding/json"
 	"fmt"
 	"io"
 	"os"
@@ -31,27 +32,37 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 )
 
+func init() {
+	// Pre-register types for gob encoding to improve performance
+	gob.Register(&PackageIndexCache{})
+	gob.Register(&CachedRuleRecord{})
+	gob.Register(label.Label{})
+	gob.Register(ImportSpec{})
+}
+
 // PackageIndexCache represents the cached index data for a single package.
+// Note: All fields must be exported for gob encoding.
 type PackageIndexCache struct {
 	// Metadata for cache invalidation
-	BuildFileHash     string            `json:"build_file_hash"`      // SHA-256 of BUILD file content
-	SourceFileHashes  map[string]string `json:"source_file_hashes"`   // filename -> SHA-256
-	ConfigFingerprint string            `json:"config_fingerprint"`   // Hash of indexing-relevant config
-	GazelleVersion    string            `json:"gazelle_version"`      // For compatibility
-	Timestamp         int64             `json:"timestamp"`            // Unix timestamp (for debugging)
+	BuildFileHash     string            // SHA-256 of BUILD file content
+	SourceFileHashes  map[string]string // filename -> SHA-256
+	ConfigFingerprint string            // Hash of indexing-relevant config
+	GazelleVersion    string            // For compatibility
+	Timestamp         int64             // Unix timestamp (for debugging)
 
 	// Cached rule records
-	Records []*CachedRuleRecord `json:"records"`
+	Records []*CachedRuleRecord
 }
 
 // CachedRuleRecord is a serializable version of ruleRecord.
+// Note: All fields must be exported for gob encoding.
 type CachedRuleRecord struct {
-	Kind       string        `json:"kind"`
-	Label      label.Label   `json:"label"`
-	Pkg        string        `json:"pkg"`
-	ImportedAs []ImportSpec  `json:"imported_as"`
-	Embeds     []label.Label `json:"embeds"`
-	Lang       string        `json:"lang"`
+	Kind       string
+	Label      label.Label
+	Pkg        string
+	ImportedAs []ImportSpec
+	Embeds     []label.Label
+	Lang       string
 }
 
 // IndexCacheManager manages the disk cache for rule indexing.
@@ -136,16 +147,21 @@ func (cm *IndexCacheManager) LoadPackageCache(
 	return cache.Records, true
 }
 
-// loadCacheFromDisk loads a cache entry from disk.
+// loadCacheFromDisk loads a cache entry from disk using gob encoding.
 func (cm *IndexCacheManager) loadCacheFromDisk(pkgRel string) (*PackageIndexCache, error) {
 	cacheFilePath := cm.getCacheFilePath(pkgRel)
-	data, err := os.ReadFile(cacheFilePath)
+	f, err := os.Open(cacheFilePath)
 	if err != nil {
 		return nil, err
 	}
+	defer f.Close()
+
+	// Use buffered reader for better I/O performance
+	reader := bufio.NewReader(f)
+	decoder := gob.NewDecoder(reader)
 
 	var cache PackageIndexCache
-	if err := json.Unmarshal(data, &cache); err != nil {
+	if err := decoder.Decode(&cache); err != nil {
 		return nil, err
 	}
 
@@ -191,20 +207,28 @@ func (cm *IndexCacheManager) SavePackageCache(
 		Records:           records,
 	}
 
-	// Serialize to JSON
-	data, err := json.MarshalIndent(cache, "", "  ")
-	if err != nil {
-		return err
-	}
-
 	// Ensure cache directory exists
 	if err := os.MkdirAll(cm.cacheDir, 0755); err != nil {
 		return err
 	}
 
-	// Write cache file
+	// Serialize using gob encoding (much faster than JSON)
 	cacheFilePath := cm.getCacheFilePath(pkgRel)
-	return os.WriteFile(cacheFilePath, data, 0644)
+	f, err := os.Create(cacheFilePath)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+
+	// Use buffered writer for better I/O performance
+	writer := bufio.NewWriter(f)
+	encoder := gob.NewEncoder(writer)
+
+	if err := encoder.Encode(cache); err != nil {
+		return err
+	}
+
+	return writer.Flush()
 }
 
 // validateCache checks if a cached package is still valid.
@@ -251,7 +275,7 @@ func (cm *IndexCacheManager) validateCache(
 	return true
 }
 
-// computeFileHash computes the SHA-256 hash of a file.
+// computeFileHash computes the SHA-256 hash of a file with buffered I/O.
 func (cm *IndexCacheManager) computeFileHash(filePath string) (string, error) {
 	f, err := os.Open(filePath)
 	if err != nil {
@@ -259,8 +283,11 @@ func (cm *IndexCacheManager) computeFileHash(filePath string) (string, error) {
 	}
 	defer f.Close()
 
+	// Use buffered reader for better I/O performance (32KB buffer)
+	reader := bufio.NewReaderSize(f, 32*1024)
+
 	h := sha256.New()
-	if _, err := io.Copy(h, f); err != nil {
+	if _, err := io.Copy(h, reader); err != nil {
 		return "", err
 	}
 
@@ -273,7 +300,7 @@ func (cm *IndexCacheManager) getCacheFilePath(pkgRel string) string {
 	h := sha256.New()
 	h.Write([]byte(pkgRel))
 	pkgHash := hex.EncodeToString(h.Sum(nil))
-	return filepath.Join(cm.cacheDir, pkgHash+".json")
+	return filepath.Join(cm.cacheDir, pkgHash+".gob")
 }
 
 // PreloadCache attempts to load a cache entry into memory.
