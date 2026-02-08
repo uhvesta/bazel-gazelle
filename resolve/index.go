@@ -231,7 +231,6 @@ func (ix *RuleIndex) collectRecordEmbeds(r *ruleRecord, didCollectEmbeds map[lab
 	if _, ok := didCollectEmbeds[r.Label]; ok {
 		return
 	}
-	resolver := ix.mrslv(r.rule, r.Pkg)
 	didCollectEmbeds[r.Label] = true
 	ix.embeds[r.Label] = r.Embeds
 	for _, e := range r.Embeds {
@@ -240,8 +239,7 @@ func (ix *RuleIndex) collectRecordEmbeds(r *ruleRecord, didCollectEmbeds map[lab
 			continue
 		}
 		ix.collectRecordEmbeds(er, didCollectEmbeds)
-		erResolver := ix.mrslv(er.rule, er.Pkg)
-		if resolver.Name() == erResolver.Name() {
+		if r.Lang == er.Lang {
 			ix.embedded[er.Label] = struct{}{}
 			ix.embeds[r.Label] = append(ix.embeds[r.Label], ix.embeds[er.Label]...)
 		}

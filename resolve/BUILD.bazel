@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "config.go",
         "index.go",
+        "index_cache.go",
     ],
     importpath = "github.com/bazelbuild/bazel-gazelle/resolve",
     visibility = ["//visibility:public"],
@@ -23,6 +24,8 @@ filegroup(
         "BUILD.bazel",
         "config.go",
         "index.go",
+        "index_cache.go",
+        "index_cache_test.go",
         "resolve_test.go",
     ],
     visibility = ["//visibility:public"],
@@ -36,7 +39,10 @@ alias(
 
 go_test(
     name = "resolve_test",
-    srcs = ["resolve_test.go"],
+    srcs = [
+        "index_cache_test.go",
+        "resolve_test.go",
+    ],
     embed = [":resolve"],
     deps = [
         "//config",

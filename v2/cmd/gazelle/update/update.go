@@ -60,6 +60,7 @@ type updateConfig struct {
 	print0                 bool
 	profile                Profiler
 	removeNoopKeepComments bool
+	indexCachePath string
 }
 
 type emitFunc func(c *config.Config, f *rule.File) error
@@ -102,6 +103,7 @@ func (ucr *updateConfigurer) RegisterFlags(fs *flag.FlagSet, cmd string, c *conf
 	fs.Var(&gzflag.MultiFlag{Values: &ucr.knownImports}, "known_import", "import path for which external resolution is skipped (can specify multiple times)")
 	fs.StringVar(&ucr.repoConfigPath, "repo_config", "", "file where Gazelle should load repository configuration. Defaults to WORKSPACE.")
 	fs.BoolVar(&uc.removeNoopKeepComments, "remove_noop_keep_comments", false, "when set, gazelle will remove noop keep comments from BUILD files")
+	fs.StringVar(&uc.indexCachePath, "index_cache", "", "path to a file used to persist the rule index between runs")
 }
 
 func (ucr *updateConfigurer) CheckFlags(fs *flag.FlagSet, c *config.Config) error {
@@ -117,6 +119,9 @@ func (ucr *updateConfigurer) CheckFlags(fs *flag.FlagSet, c *config.Config) erro
 	}
 	if uc.patchPath != "" && !filepath.IsAbs(uc.patchPath) {
 		uc.patchPath = filepath.Join(c.WorkDir, uc.patchPath)
+	}
+	if uc.indexCachePath != "" && !filepath.IsAbs(uc.indexCachePath) {
+		uc.indexCachePath = filepath.Join(c.WorkDir, uc.indexCachePath)
 	}
 	p, err := NewProfiler(ucr.cpuProfile, ucr.memProfile)
 	if err != nil {
@@ -303,6 +308,25 @@ func Run(
 	}
 	ruleIndex := resolve.NewRuleIndex(mrslv.Resolver, exts...)
 
+	uc := getUpdateConfig(c)
+	if uc.indexCachePath != "" {
+		execPath, execErr := os.Executable()
+		if execErr != nil {
+			log.Printf("warning: could not determine executable path for index fingerprint: %v", execErr)
+		} else {
+			fingerprint, fpErr := resolve.BinaryFingerprint(execPath)
+			if fpErr != nil {
+				log.Printf("warning: could not compute binary fingerprint: %v", fpErr)
+			} else {
+				if loadErr := ruleIndex.LoadCache(uc.indexCachePath, fingerprint); loadErr != nil {
+					log.Printf("warning: could not load index cache: %v", loadErr)
+				}
+				// Store fingerprint for SaveCache later.
+				c.Exts["_index_fingerprint"] = fingerprint
+			}
+		}
+	}
+
 	if err = fixRepoFiles(c, loads); err != nil {
 		return err
 	}
@@ -317,7 +341,6 @@ func Run(
 
 	// Visit all directories in the repository.
 	var visits []visitRecord
-	uc := getUpdateConfig(c)
 	defer func() {
 		if err := uc.profile.Stop(); err != nil {
 			log.Printf("stopping profiler: %v", err)
@@ -336,6 +359,7 @@ func Run(
 		regularFiles := args.RegularFiles
 		genFiles := args.GenFiles
 
+		ruleIndex.InvalidatePackage(rel)
 		mrslv.AliasedKinds(rel, c.AliasMap)
 		// If this file is ignored or if Gazelle was not asked to update this
 		// directory, just index the build file and move on.
@@ -497,6 +521,14 @@ func Run(
 
 	if walkErr != nil {
 		return walkErr
+	}
+
+	if uc.indexCachePath != "" {
+		if fp, ok := c.Exts["_index_fingerprint"].(string); ok {
+			if saveErr := ruleIndex.SaveCache(uc.indexCachePath, fp); saveErr != nil {
+				log.Printf("warning: could not save index cache: %v", saveErr)
+			}
+		}
 	}
 
 	// Finish building the index for dependency resolution.
