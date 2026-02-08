@@ -202,3 +202,15 @@ type GenerateResult struct {
 	// with multiple language extensions.
 	RelsToIndex []string
 }
+
+// CacheableLanguage is an optional interface that language extensions
+// can implement to specify which source files should invalidate the cache
+// when modified.
+type CacheableLanguage interface {
+	// CacheableSourceFiles returns the list of source files in the given
+	// directory that affect rule indexing. For example:
+	// - Go language: returns .go files
+	// - Proto language: returns .proto files
+	// If not implemented, only BUILD file changes invalidate cache.
+	CacheableSourceFiles(c *config.Config, dir string, files []string) []string
+}

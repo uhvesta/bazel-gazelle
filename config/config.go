@@ -91,6 +91,13 @@ type Config struct {
 	// When false, Gazelle indexes all directories.
 	IndexLazy bool
 
+	// IndexCache determines whether Gazelle should use persistent disk caching
+	// of rule index data to speed up incremental runs.
+	IndexCache bool
+
+	// IndexCacheDir is the directory where index cache files are stored.
+	IndexCacheDir string
+
 	// KindMap maps from a kind name to its replacement. It provides a way for
 	// users to customize the kind of rules created by Gazelle, via
 	// # gazelle:map_kind.
@@ -213,6 +220,8 @@ var _ Configurer = (*CommonConfigurer)(nil)
 type CommonConfigurer struct {
 	repoRoot                          string
 	indexLibraries, indexLazy, strict bool
+	indexCache                        bool
+	indexCacheDir                     string
 	langCsv                           string
 	bzlmod                            bool
 }
@@ -220,9 +229,13 @@ type CommonConfigurer struct {
 func (cc *CommonConfigurer) RegisterFlags(fs *flag.FlagSet, cmd string, c *Config) {
 	cc.indexLibraries = true
 	cc.indexLazy = false
+	cc.indexCache = false
+	cc.indexCacheDir = ".gazelle-cache"
 	fs.StringVar(&cc.repoRoot, "repo_root", "", "path to a directory which corresponds to go_prefix, otherwise gazelle searches for it.")
 	fs.Var(indexFlag{indexLibraries: &cc.indexLibraries, indexLazy: &cc.indexLazy}, "index", "determines how Gazelle indexes library rules. 'all' means index all libraries in all repo directories. 'lazy' means specific directories, determined by extensions. 'none' means indexing is disabled.")
 	fs.BoolVar(&cc.strict, "strict", false, "when true, gazelle will exit with none-zero value for build file syntax errors or unknown directives")
+	fs.BoolVar(&cc.indexCache, "index_cache", false, "enable persistent disk caching of rule index")
+	fs.StringVar(&cc.indexCacheDir, "index_cache_dir", ".gazelle-cache", "directory for index cache storage")
 	fs.StringVar(&cc.langCsv, "lang", "", "if non-empty, process only these languages (e.g. \"go,proto\")")
 	fs.BoolVar(&cc.bzlmod, "bzlmod", false, "for internal usage only")
 }
@@ -253,6 +266,8 @@ func (cc *CommonConfigurer) CheckFlags(fs *flag.FlagSet, c *Config) error {
 	}
 	c.IndexLibraries = cc.indexLibraries
 	c.IndexLazy = cc.indexLazy
+	c.IndexCache = cc.indexCache
+	c.IndexCacheDir = cc.indexCacheDir
 	c.Strict = cc.strict
 	if len(cc.langCsv) > 0 {
 		c.Langs = strings.Split(cc.langCsv, ",")

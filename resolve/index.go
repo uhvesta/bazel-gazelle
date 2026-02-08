@@ -106,6 +106,9 @@ type RuleIndex struct {
 	// the Embeds method). This may include imports of other languages.
 	// Computed from `rules` when indexing.
 	imports map[label.Label][]ImportSpec
+
+	// cacheManager manages disk caching of rule index data
+	cacheManager *IndexCacheManager
 }
 
 // ruleRecord contains information about a rule relevant to import indexing.
@@ -347,4 +350,98 @@ func passesLanguageFilter(langFilter []string, langName string) bool {
 		}
 	}
 	return false
+}
+
+// SetCacheManager sets the cache manager for this index.
+func (ix *RuleIndex) SetCacheManager(cm *IndexCacheManager) {
+	ix.cacheManager = cm
+}
+
+// HasCacheManager returns true if a cache manager is set.
+func (ix *RuleIndex) HasCacheManager() bool {
+	return ix.cacheManager != nil && ix.cacheManager.IsEnabled()
+}
+
+// LoadFromCache attempts to load cached index data for a package.
+// Returns the cached records and true if the cache is valid, nil and false otherwise.
+func (ix *RuleIndex) LoadFromCache(
+	c *config.Config,
+	f *rule.File,
+	pkgRel string,
+	sourceFiles []string,
+) ([]*ruleRecord, bool) {
+	if !ix.HasCacheManager() {
+		return nil, false
+	}
+
+	cachedRecords, valid := ix.cacheManager.LoadPackageCache(c, pkgRel, f, sourceFiles)
+	if !valid {
+		return nil, false
+	}
+
+	// Convert CachedRuleRecord back to ruleRecord
+	records := make([]*ruleRecord, 0, len(cachedRecords))
+	for _, cached := range cachedRecords {
+		// Find the actual rule in the file
+		var r *rule.Rule
+		for _, fileRule := range f.Rules {
+			if fileRule.Kind() == cached.Kind && fileRule.Name() == cached.Label.Name {
+				r = fileRule
+				break
+			}
+		}
+		if r == nil {
+			// Rule not found in file, cache is invalid
+			return nil, false
+		}
+
+		records = append(records, &ruleRecord{
+			rule:       r,
+			Kind:       cached.Kind,
+			Label:      cached.Label,
+			Pkg:        cached.Pkg,
+			ImportedAs: cached.ImportedAs,
+			Embeds:     cached.Embeds,
+			Lang:       cached.Lang,
+		})
+	}
+
+	return records, true
+}
+
+// AddCachedRecords adds cached records directly to the index without calling Imports().
+func (ix *RuleIndex) AddCachedRecords(records []*ruleRecord) {
+	if ix.indexed {
+		log.Fatal("AddCachedRecords called after Finish")
+	}
+	ix.rules = append(ix.rules, records...)
+}
+
+// SaveToCache saves the current package records to cache.
+func (ix *RuleIndex) SaveToCache(
+	c *config.Config,
+	pkgRel string,
+	f *rule.File,
+	sourceFiles []string,
+) error {
+	if !ix.HasCacheManager() {
+		return nil
+	}
+
+	// Find records for this package
+	var pkgRecords []*CachedRuleRecord
+	for _, rec := range ix.rules {
+		if rec.Pkg == pkgRel {
+			pkgRecords = append(pkgRecords, &CachedRuleRecord{
+				Kind:       rec.Kind,
+				Label:      rec.Label,
+				Pkg:        rec.Pkg,
+				ImportedAs: rec.ImportedAs,
+				Embeds:     rec.Embeds,
+				Lang:       rec.Lang,
+			})
+		}
+	}
+
+	return ix.cacheManager.SavePackageCache(c, pkgRel, f, sourceFiles, pkgRecords)
 }

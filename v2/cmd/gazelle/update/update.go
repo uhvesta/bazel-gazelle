@@ -303,6 +303,13 @@ func Run(
 	}
 	ruleIndex := resolve.NewRuleIndex(mrslv.Resolver, exts...)
 
+	// Initialize cache manager if enabled
+	if c.IndexCache {
+		configHash := resolve.ComputeConfigFingerprint(c)
+		cacheManager := resolve.NewIndexCacheManager(c.RepoRoot, c.IndexCacheDir, configHash)
+		ruleIndex.SetCacheManager(cacheManager)
+	}
+
 	if err = fixRepoFiles(c, loads); err != nil {
 		return err
 	}
@@ -344,8 +351,33 @@ func Run(
 				mrslv.MappedKind(rel, repl)
 			}
 			if c.IndexLibraries && f != nil {
-				for _, r := range f.Rules {
-					ruleIndex.AddRule(c, r, f)
+				// Get cacheable source files from language extensions
+				var sourceFiles []string
+				for _, lang := range languages {
+					if cacheable, ok := lang.(language.CacheableLanguage); ok {
+						sourceFiles = append(sourceFiles, cacheable.CacheableSourceFiles(c, dir, regularFiles)...)
+					}
+				}
+
+				// Try cache first
+				if ruleIndex.HasCacheManager() {
+					cached, valid := ruleIndex.LoadFromCache(c, f, rel, sourceFiles)
+					if valid {
+						// Cache hit - add cached records without calling Imports()
+						ruleIndex.AddCachedRecords(cached)
+					} else {
+						// Cache miss - index normally
+						for _, r := range f.Rules {
+							ruleIndex.AddRule(c, r, f)
+						}
+						// Save to cache after indexing
+						ruleIndex.SaveToCache(c, rel, f, sourceFiles)
+					}
+				} else {
+					// No cache manager - existing behavior
+					for _, r := range f.Rules {
+						ruleIndex.AddRule(c, r, f)
+					}
 				}
 			}
 			return walk.Walk2FuncResult{}
