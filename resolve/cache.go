@@ -55,6 +55,21 @@ type CachedRuleRecord struct {
 }
 
 // IndexCacheManager manages the disk cache for rule indexing.
+//
+// Performance optimization: Uses sync.Map for lock-free concurrent reads.
+// During the walk phase, multiple goroutines may try to load cache entries
+// simultaneously. sync.Map provides better performance than map+RWMutex for
+// read-heavy workloads with occasional writes.
+//
+// The cache workflow:
+// 1. First access: Load from disk, validate, store in sync.Map
+// 2. Subsequent accesses: Lock-free reads from sync.Map
+// 3. Cache invalidation: Remove stale entries from sync.Map
+//
+// This optimization is especially beneficial when:
+// - Using lazy indexing (only index directories being updated)
+// - Large repositories with many packages
+// - Concurrent walk operations
 type IndexCacheManager struct {
 	enabled        bool
 	cacheDir       string // e.g., /repo/root/.gazelle-cache/index/
@@ -62,8 +77,8 @@ type IndexCacheManager struct {
 	gazelleVersion string // Current gazelle version
 
 	// In-memory cache of loaded package caches (for performance)
-	packageCaches map[string]*PackageIndexCache
-	mu            sync.RWMutex
+	// Using sync.Map for lock-free concurrent reads
+	packageCaches sync.Map // map[string]*PackageIndexCache
 }
 
 // NewIndexCacheManager creates a new cache manager.
@@ -74,7 +89,6 @@ func NewIndexCacheManager(repoRoot, cacheDirName, configHash string) *IndexCache
 		cacheDir:       cacheDir,
 		configHash:     configHash,
 		gazelleVersion: "0.40.0", // TODO: extract from build info
-		packageCaches:  make(map[string]*PackageIndexCache),
 	}
 }
 
@@ -95,37 +109,47 @@ func (cm *IndexCacheManager) LoadPackageCache(
 		return nil, false
 	}
 
-	// Check in-memory cache first
-	cm.mu.RLock()
-	cached, ok := cm.packageCaches[pkgRel]
-	cm.mu.RUnlock()
-	if ok && cm.validateCache(c, cached, buildFile, sourceFiles) {
-		return cached.Records, true
+	// Check in-memory cache first (lock-free read with sync.Map)
+	if value, ok := cm.packageCaches.Load(pkgRel); ok {
+		cached := value.(*PackageIndexCache)
+		if cm.validateCache(c, cached, buildFile, sourceFiles) {
+			return cached.Records, true
+		}
+		// Cache is stale, remove it
+		cm.packageCaches.Delete(pkgRel)
 	}
 
 	// Load from disk
-	cacheFilePath := cm.getCacheFilePath(pkgRel)
-	data, err := os.ReadFile(cacheFilePath)
+	cache, err := cm.loadCacheFromDisk(pkgRel)
 	if err != nil {
 		return nil, false
 	}
 
-	var cache PackageIndexCache
-	if err := json.Unmarshal(data, &cache); err != nil {
-		return nil, false
-	}
-
 	// Validate cache
-	if !cm.validateCache(c, &cache, buildFile, sourceFiles) {
+	if !cm.validateCache(c, cache, buildFile, sourceFiles) {
 		return nil, false
 	}
 
-	// Store in memory for future use
-	cm.mu.Lock()
-	cm.packageCaches[pkgRel] = &cache
-	cm.mu.Unlock()
+	// Store in memory for future use (lock-free with sync.Map)
+	cm.packageCaches.Store(pkgRel, cache)
 
 	return cache.Records, true
+}
+
+// loadCacheFromDisk loads a cache entry from disk.
+func (cm *IndexCacheManager) loadCacheFromDisk(pkgRel string) (*PackageIndexCache, error) {
+	cacheFilePath := cm.getCacheFilePath(pkgRel)
+	data, err := os.ReadFile(cacheFilePath)
+	if err != nil {
+		return nil, err
+	}
+
+	var cache PackageIndexCache
+	if err := json.Unmarshal(data, &cache); err != nil {
+		return nil, err
+	}
+
+	return &cache, nil
 }
 
 // SavePackageCache saves the cached index for a package.
@@ -250,6 +274,59 @@ func (cm *IndexCacheManager) getCacheFilePath(pkgRel string) string {
 	h.Write([]byte(pkgRel))
 	pkgHash := hex.EncodeToString(h.Sum(nil))
 	return filepath.Join(cm.cacheDir, pkgHash+".json")
+}
+
+// PreloadCache attempts to load a cache entry into memory.
+// This is useful for pre-populating the cache before the walk phase.
+// Returns true if the cache was successfully loaded and is valid.
+func (cm *IndexCacheManager) PreloadCache(
+	c *config.Config,
+	pkgRel string,
+	buildFilePath string,
+	sourceFiles []string,
+) bool {
+	if !cm.IsEnabled() {
+		return false
+	}
+
+	// Check if already loaded
+	if _, ok := cm.packageCaches.Load(pkgRel); ok {
+		return true
+	}
+
+	// Load from disk
+	cache, err := cm.loadCacheFromDisk(pkgRel)
+	if err != nil {
+		return false
+	}
+
+	// For pre-loading, we do a lightweight validation (just version and config)
+	// Full validation with file hashes happens in LoadPackageCache
+	if cache.GazelleVersion != cm.gazelleVersion {
+		return false
+	}
+	if cache.ConfigFingerprint != cm.configHash {
+		return false
+	}
+
+	// Store in memory
+	cm.packageCaches.Store(pkgRel, cache)
+	return true
+}
+
+// GetCacheStats returns statistics about the in-memory cache.
+func (cm *IndexCacheManager) GetCacheStats() (loaded int) {
+	cm.packageCaches.Range(func(key, value interface{}) bool {
+		loaded++
+		return true
+	})
+	return loaded
+}
+
+// ClearInMemoryCache clears all in-memory cached entries.
+// This is useful for testing or forcing a fresh load.
+func (cm *IndexCacheManager) ClearInMemoryCache() {
+	cm.packageCaches = sync.Map{}
 }
 
 // ComputeConfigFingerprint computes a fingerprint of indexing-relevant config.

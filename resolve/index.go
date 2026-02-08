@@ -445,3 +445,24 @@ func (ix *RuleIndex) SaveToCache(
 
 	return ix.cacheManager.SavePackageCache(c, pkgRel, f, sourceFiles, pkgRecords)
 }
+
+// PreloadCache attempts to pre-populate the cache for a package.
+func (ix *RuleIndex) PreloadCache(
+	c *config.Config,
+	pkgRel string,
+	buildFilePath string,
+	sourceFiles []string,
+) bool {
+	if !ix.HasCacheManager() {
+		return false
+	}
+	return ix.cacheManager.PreloadCache(c, pkgRel, buildFilePath, sourceFiles)
+}
+
+// GetCacheStats returns cache statistics for debugging.
+func (ix *RuleIndex) GetCacheStats() (loaded int) {
+	if !ix.HasCacheManager() {
+		return 0
+	}
+	return ix.cacheManager.GetCacheStats()
+}
