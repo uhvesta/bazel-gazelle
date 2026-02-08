@@ -466,3 +466,43 @@ func (ix *RuleIndex) GetCacheStats() (loaded int) {
 	}
 	return ix.cacheManager.GetCacheStats()
 }
+
+// LoadGenerationCache attempts to load cached rule generation results.
+func (ix *RuleIndex) LoadGenerationCache(
+	c *config.Config,
+	pkgRel string,
+	buildFilePath string,
+	sourceFiles, subdirs, genFiles []string,
+) (*PackageGenerationCache, bool) {
+	if !ix.HasCacheManager() {
+		return nil, false
+	}
+	return ix.cacheManager.LoadGenerationCache(c, pkgRel, buildFilePath, sourceFiles, subdirs, genFiles)
+}
+
+// SaveGenerationCache saves rule generation results to cache.
+func (ix *RuleIndex) SaveGenerationCache(
+	c *config.Config,
+	pkgRel string,
+	buildFilePath string,
+	sourceFiles, subdirs, genFiles []string,
+	generatedRules, emptyRules []*rule.Rule,
+	imports []interface{},
+	mappedKinds []config.MappedKind,
+) error {
+	if !ix.HasCacheManager() {
+		return nil
+	}
+	return ix.cacheManager.SaveGenerationCache(
+		c, pkgRel, buildFilePath, sourceFiles, subdirs, genFiles,
+		generatedRules, emptyRules, imports, mappedKinds,
+	)
+}
+
+// UpdateGenerationCacheWithFinalFile updates the cache with the final BUILD file.
+func (ix *RuleIndex) UpdateGenerationCacheWithFinalFile(pkgRel string, finalBuildFile []byte) error {
+	if !ix.HasCacheManager() {
+		return nil
+	}
+	return ix.cacheManager.UpdateGenerationCacheWithFinalFile(pkgRel, finalBuildFile)
+}

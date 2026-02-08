@@ -255,6 +255,10 @@ type visitRecord struct {
 	// mappedKinds are mapped kinds used during this visit.
 	mappedKinds    []config.MappedKind
 	mappedKindInfo map[string]rule.KindInfo
+
+	// fromCache indicates this visit used cached final BUILD file
+	// and should skip merge/resolve phases
+	fromCache bool
 }
 
 var genericLoads = []rule.LoadInfo{
@@ -383,37 +387,114 @@ func Run(
 			return walk.Walk2FuncResult{}
 		}
 
-		// Fix any problems in the file.
+		// Generate rules - check cache first to skip generation if unchanged
+		var empty, gen []*rule.Rule
+		var imports []interface{}
+		var relsToVisit []string
+		var usedCache bool
+		var cachedFinalFile []byte
+
+		// Try loading from generation cache
+		if ruleIndex.HasCacheManager() && f != nil {
+			// Get cacheable source files from language extensions
+			var cacheableSourceFiles []string
+			for _, lang := range filterLanguages(c, languages) {
+				if cacheable, ok := lang.(language.CacheableLanguage); ok {
+					cacheableSourceFiles = append(cacheableSourceFiles, cacheable.CacheableSourceFiles(c, dir, regularFiles)...)
+				}
+			}
+
+			cachedGen, valid := ruleIndex.LoadGenerationCache(c, rel, f.Path, cacheableSourceFiles, subdirs, genFiles)
+			if valid {
+				// Check if we have a cached final BUILD file (allows skipping Merge/Resolve)
+				if len(cachedGen.FinalBuildFile) > 0 {
+					// Ultra-fast path: Use cached final file, skip everything except Fix()
+					cachedFinalFile = cachedGen.FinalBuildFile
+					usedCache = true
+				} else {
+					// Cache hit for generation only - use cached rules
+					var err error
+					gen, err = cachedGen.DeserializeGeneratedRules(rel)
+					if err == nil {
+						empty, err = cachedGen.DeserializeEmptyRules(rel)
+						if err == nil {
+							imports = cachedGen.DeserializeImports()
+							// Note: mappedKinds will be collected later when applying map_kind
+							usedCache = true
+						}
+					}
+				}
+			}
+		}
+
+		// If we have a cached final file, use it directly (skip generation/merge/resolve)
+		if len(cachedFinalFile) > 0 {
+			// Parse the cached BUILD file
+			cachedFile, err := rule.LoadData(filepath.Join(dir, c.DefaultBuildFileName()), rel, cachedFinalFile)
+			if err != nil {
+				// Cache is corrupted, fall through to normal generation
+				log.Printf("Warning: failed to parse cached BUILD file for %s: %v", rel, err)
+				cachedFinalFile = nil
+				usedCache = false
+			} else {
+				if os.Getenv("GAZELLE_CACHE_DEBUG") != "" {
+					log.Printf("Cache HIT (final): %s", rel)
+				}
+
+				// Fix any problems in the cached file
+				for _, l := range filterLanguages(c, languages) {
+					l.Fix(c, cachedFile)
+				}
+
+				// Add to visits with fromCache=true to skip merge/resolve
+				visits = append(visits, visitRecord{
+					pkgRel:    rel,
+					c:         c,
+					file:      cachedFile,
+					fromCache: true,
+				})
+
+				// Still need to index if required
+				if c.IndexLibraries {
+					for _, r := range cachedFile.Rules {
+						ruleIndex.AddRule(c, r, cachedFile)
+					}
+				}
+
+				return walk.Walk2FuncResult{}
+			}
+		}
+
+		// Fix any problems in the file (if not using cached final file)
 		if f != nil {
 			for _, l := range filterLanguages(c, languages) {
 				l.Fix(c, f)
 			}
 		}
 
-		// Generate rules.
-		var empty, gen []*rule.Rule
-		var imports []interface{}
-		var relsToVisit []string
-		for _, l := range filterLanguages(c, languages) {
-			res := l.GenerateRules(language.GenerateArgs{
-				Config:       c,
-				Dir:          dir,
-				Rel:          rel,
-				File:         f,
-				Subdirs:      subdirs,
-				RegularFiles: regularFiles,
-				GenFiles:     genFiles,
-				OtherEmpty:   empty,
-				OtherGen:     gen,
-			})
-			if len(res.Gen) != len(res.Imports) {
-				log.Panicf("%s: language %s generated %d rules but returned %d imports", rel, l.Name(), len(res.Gen), len(res.Imports))
-			}
-			empty = append(empty, res.Empty...)
-			gen = append(gen, res.Gen...)
-			imports = append(imports, res.Imports...)
-			if c.IndexLibraries {
-				relsToVisit = append(relsToVisit, res.RelsToIndex...)
+		// If cache miss or disabled, generate rules normally
+		if !usedCache {
+			for _, l := range filterLanguages(c, languages) {
+				res := l.GenerateRules(language.GenerateArgs{
+					Config:       c,
+					Dir:          dir,
+					Rel:          rel,
+					File:         f,
+					Subdirs:      subdirs,
+					RegularFiles: regularFiles,
+					GenFiles:     genFiles,
+					OtherEmpty:   empty,
+					OtherGen:     gen,
+				})
+				if len(res.Gen) != len(res.Imports) {
+					log.Panicf("%s: language %s generated %d rules but returned %d imports", rel, l.Name(), len(res.Gen), len(res.Imports))
+				}
+				empty = append(empty, res.Empty...)
+				gen = append(gen, res.Gen...)
+				imports = append(imports, res.Imports...)
+				if c.IndexLibraries {
+					relsToVisit = append(relsToVisit, res.RelsToIndex...)
+				}
 			}
 		}
 		if f == nil && len(gen) == 0 {
@@ -508,6 +589,26 @@ func Run(
 			mappedKindInfo: mappedKindInfo,
 		})
 
+		// Save generation cache if we generated rules (not from cache)
+		if !usedCache && ruleIndex.HasCacheManager() && f != nil {
+			// Get cacheable source files from language extensions
+			var cacheableSourceFiles []string
+			for _, lang := range filterLanguages(c, languages) {
+				if cacheable, ok := lang.(language.CacheableLanguage); ok {
+					cacheableSourceFiles = append(cacheableSourceFiles, cacheable.CacheableSourceFiles(c, dir, regularFiles)...)
+				}
+			}
+
+			// Save to cache (errors are non-fatal)
+			if err := ruleIndex.SaveGenerationCache(
+				c, rel, f.Path, cacheableSourceFiles, subdirs, genFiles,
+				gen, empty, imports, mappedKinds,
+			); err != nil {
+				// Log error but continue
+				log.Printf("Warning: failed to save generation cache for %s: %v", rel, err)
+			}
+		}
+
 		// Add library rules to the dependency resolution table.
 		if c.IndexLibraries {
 			for _, r := range f.Rules {
@@ -545,6 +646,11 @@ func Run(
 		log.Print(err)
 	}
 	for _, v := range visits {
+		// Skip resolve and merge for cached visits
+		if v.fromCache {
+			continue
+		}
+
 		for i, r := range v.rules {
 			from := label.New(c.RepoName, v.pkgRel, r.Name())
 			if rslv := mrslv.Resolver(r, v.pkgRel); rslv != nil {
@@ -565,12 +671,23 @@ func Run(
 	// Emit merged files.
 	var exit error
 	for _, v := range visits {
+		// Fix loads for all visits (including cached)
 		merger.FixLoads(v.file, applyKindMappings(v.mappedKinds, loads))
+
 		if err := uc.emit(v.c, v.file); err != nil {
 			if err == ErrDiff {
 				exit = err
 			} else {
 				log.Print(err)
+			}
+		}
+
+		// Update cache with final BUILD file (for non-cached visits)
+		if !v.fromCache && ruleIndex.HasCacheManager() && v.file != nil {
+			finalContent := v.file.Format()
+			if err := ruleIndex.UpdateGenerationCacheWithFinalFile(v.pkgRel, finalContent); err != nil {
+				// Log error but continue (non-fatal)
+				log.Printf("Warning: failed to update generation cache for %s: %v", v.pkgRel, err)
 			}
 		}
 	}

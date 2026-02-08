@@ -7,7 +7,6 @@ go_library(
     visibility = ["//:__subpackages__"],
     deps = [
         "//label",
-        "@com_github_bazelbuild_buildtools//build",
     ],
 )
 
