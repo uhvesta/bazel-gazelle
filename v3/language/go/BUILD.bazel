@@ -1,29 +1,29 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
-    name = "language",
-    srcs = [
-        "base.go",
-        "lang.go",
-        "registry.go",
-    ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/v3/language",
+    name = "go",
+    srcs = ["go.go"],
+    importpath = "github.com/bazelbuild/bazel-gazelle/v3/language/go",
     visibility = ["//visibility:public"],
     deps = [
         "//config",
         "//label",
+        "//language",
+        "//language/go",
         "//repo",
         "//resolve",
         "//rule",
         "//v3/internal/vfs",
+        "//v3/language",
     ],
 )
 
 go_test(
-    name = "language_test",
+    name = "go_test",
     size = "small",
-    srcs = ["base_test.go"],
-    embed = [":language"],
+    srcs = ["go_test.go"],
+    embed = [":go"],
+    deps = ["//v3/internal/vfs"],
 )
 
 filegroup(
@@ -31,12 +31,8 @@ filegroup(
     testonly = True,
     srcs = [
         "BUILD.bazel",
-        "base.go",
-        "base_test.go",
-        "lang.go",
-        "registry.go",
-        "//v3/language/go:all_files",
-        "//v3/language/proto:all_files",
+        "go.go",
+        "go_test.go",
     ],
     visibility = ["//visibility:public"],
 )

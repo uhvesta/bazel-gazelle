@@ -1,16 +1,21 @@
 package walk
 
 import (
+	"bufio"
 	"fmt"
 	"log"
 	"path"
 	"path/filepath"
+	"regexp"
 	"sort"
+	"strings"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
 )
+
+var directiveRe = regexp.MustCompile(`^#\s*gazelle:(\w+)\s*(.*?)\s*$`)
 
 type Func func(args FuncArgs) error
 
@@ -19,6 +24,7 @@ type FuncArgs struct {
 	Dir          string
 	Rel          string
 	Config       *config.Config
+	Update       bool
 	File         *rule.File
 	Subdirs      []string
 	RegularFiles []string
@@ -40,6 +46,12 @@ func Walk(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, fn Fu
 		return nil
 	}
 
+	if getWalkConfig(c) == nil {
+		c.Exts[walkName] = (&walkConfig{
+			ignoreFilter:        newIgnoreFilter(c.RepoRoot),
+			validBuildFileNames: append([]string(nil), c.ValidBuildFileNames...),
+		})
+	}
 	knownDirectives := make(map[string]bool)
 	for _, cext := range cexts {
 		for _, d := range cext.KnownDirectives() {
@@ -47,28 +59,53 @@ func Walk(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, fn Fu
 		}
 	}
 
-	return walkDir(repo, c.Clone(), cexts, knownDirectives, "", fn)
+	_, err := walkDir(repo, c.Clone(), cexts, knownDirectives, "", fn)
+	return err
 }
 
-func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, knownDirectives map[string]bool, rel string, fn Func) error {
+type visitInfo struct {
+	containedByParent bool
+	regularFiles      []string
+	subdirs           []string
+}
+
+func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, knownDirectives map[string]bool, rel string, fn Func) (visitInfo, error) {
+	wc := getWalkConfig(c)
+	if wc != nil && rel != "" && wc.isExcludedDir(rel) {
+		return visitInfo{}, nil
+	}
 	entries, err := repo.ListDir(rel)
 	if err != nil {
-		return err
+		return visitInfo{}, err
 	}
 	file, err := loadBuildFile(repo, c, rel, entries)
 	if err != nil {
-		return err
+		return visitInfo{}, err
+	}
+	if err := expandDirectiveFiles(repo, file); err != nil {
+		return visitInfo{}, err
 	}
 	checkDirectives(c, knownDirectives, file)
 	for _, cext := range cexts {
 		cext.Configure(c, rel, file)
 	}
+	wc = getWalkConfig(c)
+	if wc != nil && wc.isExcludedDir(rel) {
+		return visitInfo{}, nil
+	}
+	containedByParent := file == nil && wc != nil && wc.updateOnly
 
 	var subdirs, regularFiles []string
 	for _, name := range entries {
 		entryRel := path.Join(rel, name)
+		if wc != nil && wc.isExcludedDir(entryRel) {
+			continue
+		}
 		if _, err := repo.ListDir(entryRel); err == nil {
 			subdirs = append(subdirs, name)
+			continue
+		}
+		if wc != nil && wc.isExcludedFile(entryRel) {
 			continue
 		}
 		if _, ok := repo.File(entryRel); ok {
@@ -78,23 +115,44 @@ func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, kn
 	sort.Strings(subdirs)
 	sort.Strings(regularFiles)
 
+	vi := visitInfo{
+		containedByParent: containedByParent,
+		regularFiles:      append([]string(nil), regularFiles...),
+		subdirs:           append([]string(nil), subdirs...),
+	}
+
 	for _, subdir := range subdirs {
 		childRel := path.Join(rel, subdir)
-		if err := walkDir(repo, c.Clone(), cexts, knownDirectives, childRel, fn); err != nil {
-			return err
+		child, err := walkDir(repo, c.Clone(), cexts, knownDirectives, childRel, fn)
+		if err != nil {
+			return visitInfo{}, err
+		}
+		if !containedByParent || !child.containedByParent {
+			continue
+		}
+		for _, f := range child.regularFiles {
+			regularFiles = append(regularFiles, path.Join(subdir, f))
+		}
+		for _, d := range child.subdirs {
+			subdirs = append(subdirs, path.Join(subdir, d))
 		}
 	}
 
-	return fn(FuncArgs{
+	if containedByParent {
+		return vi, nil
+	}
+	err = fn(FuncArgs{
 		Repo:         repo,
 		Dir:          filepath.Join(repo.Root, filepath.FromSlash(rel)),
 		Rel:          rel,
 		Config:       c,
+		Update:       wc == nil || !wc.ignore,
 		File:         file,
 		Subdirs:      subdirs,
 		RegularFiles: regularFiles,
-		GenFiles:     findGenFiles(file),
+		GenFiles:     findGenFiles(wc, file),
 	})
+	return vi, err
 }
 
 func loadBuildFile(repo *vfs.Snapshot, c *config.Config, rel string, entries []string) (*rule.File, error) {
@@ -130,7 +188,7 @@ func checkDirectives(c *config.Config, knownDirectives map[string]bool, f *rule.
 	}
 }
 
-func findGenFiles(f *rule.File) []string {
+func findGenFiles(wc *walkConfig, f *rule.File) []string {
 	if f == nil {
 		return nil
 	}
@@ -144,6 +202,60 @@ func findGenFiles(f *rule.File) []string {
 			}
 		}
 	}
+	if wc != nil {
+		filtered := genFiles[:0]
+		for _, s := range genFiles {
+			if !wc.isExcludedFile(path.Join(f.Pkg, s)) {
+				filtered = append(filtered, s)
+			}
+		}
+		genFiles = filtered
+	}
 	sort.Strings(genFiles)
 	return genFiles
+}
+
+func expandDirectiveFiles(repo *vfs.Snapshot, f *rule.File) error {
+	if f == nil {
+		return nil
+	}
+	hasDirectiveFile := false
+	for _, d := range f.Directives {
+		if d.Key == "directive_file" {
+			hasDirectiveFile = true
+			break
+		}
+	}
+	if !hasDirectiveFile {
+		return nil
+	}
+	var expanded []rule.Directive
+	for _, d := range f.Directives {
+		if d.Key != "directive_file" {
+			expanded = append(expanded, d)
+			continue
+		}
+		rel := path.Clean(path.Join(f.Pkg, d.Value))
+		data, err := repo.ReadFile(rel)
+		if err != nil {
+			return fmt.Errorf("%s: reading directive file %s: %w", f.Path, d.Value, err)
+		}
+		scanner := bufio.NewScanner(strings.NewReader(string(data)))
+		for scanner.Scan() {
+			line := scanner.Text()
+			match := directiveRe.FindStringSubmatch(line)
+			if match == nil {
+				continue
+			}
+			if match[1] == "directive_file" {
+				return fmt.Errorf("%s: directive_file in %s: recursive directive_file is not supported", f.Path, d.Value)
+			}
+			expanded = append(expanded, rule.Directive{Key: match[1], Value: match[2]})
+		}
+		if err := scanner.Err(); err != nil {
+			return fmt.Errorf("%s: reading directive file %s: %w", f.Path, d.Value, err)
+		}
+	}
+	f.Directives = expanded
+	return nil
 }

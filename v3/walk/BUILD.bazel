@@ -2,13 +2,18 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "walk",
-    srcs = ["walk.go"],
+    srcs = [
+        "config.go",
+        "walk.go",
+    ],
     importpath = "github.com/bazelbuild/bazel-gazelle/v3/walk",
     visibility = ["//visibility:public"],
     deps = [
         "//config",
         "//rule",
         "//v3/internal/vfs",
+        "@com_github_bmatcuk_doublestar_v4//:doublestar",
+        "@com_github_bazelbuild_buildtools//build",
     ],
 )
 
@@ -17,7 +22,10 @@ go_test(
     size = "small",
     srcs = ["walk_test.go"],
     embed = [":walk"],
-    deps = ["//config"],
+    deps = [
+        "//config",
+        "//rule",
+    ],
 )
 
 filegroup(
@@ -25,6 +33,7 @@ filegroup(
     testonly = True,
     srcs = [
         "BUILD.bazel",
+        "config.go",
         "walk.go",
         "walk_test.go",
     ],
