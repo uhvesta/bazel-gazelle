@@ -6,8 +6,10 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"runtime"
 	"sort"
 	"strings"
+	"sync"
 )
 
 // PathMatcher reports whether a parser applies to a slash-separated repo path.
@@ -105,8 +107,10 @@ type File struct {
 
 // Dir is a read-only handle to a directory in a frozen repo snapshot.
 type Dir struct {
-	repo *Snapshot
-	rel  string
+	repo             *Snapshot
+	rel              string
+	subdirViews      []*Dir
+	regularFileViews []FileRef
 }
 
 // FileRef is a lightweight handle to a file in a frozen repo snapshot.
@@ -118,6 +122,16 @@ type FileRef struct {
 type BuildOptions struct {
 	Cache    *Cache
 	Registry *Registry
+}
+
+type fileJob struct {
+	absPath string
+	rel     string
+}
+
+type fileResult struct {
+	file File
+	err  error
 }
 
 func Build(root string, opts BuildOptions) (*BuildSnapshot, error) {
@@ -138,6 +152,7 @@ func Build(root string, opts BuildOptions) (*BuildSnapshot, error) {
 	}
 	s.dirs[""] = nil
 
+	var jobs []fileJob
 	err = filepath.WalkDir(root, func(absPath string, d fs.DirEntry, walkErr error) error {
 		if walkErr != nil {
 			return walkErr
@@ -167,19 +182,14 @@ func Build(root string, opts BuildOptions) (*BuildSnapshot, error) {
 		if !d.Type().IsRegular() {
 			return nil
 		}
-
-		content, err := os.ReadFile(absPath)
-		if err != nil {
-			return err
-		}
-		s.files[rel] = File{
-			Path:    rel,
-			Content: content,
-			Hash:    digest(content),
-		}
+		jobs = append(jobs, fileJob{absPath: absPath, rel: rel})
 		return nil
 	})
 	if err != nil {
+		return nil, err
+	}
+
+	if err := readFilesIntoSnapshot(s, jobs); err != nil {
 		return nil, err
 	}
 
@@ -187,6 +197,60 @@ func Build(root string, opts BuildOptions) (*BuildSnapshot, error) {
 		sort.Strings(s.dirs[dir])
 	}
 	return s, nil
+}
+
+func readFilesIntoSnapshot(s *BuildSnapshot, jobs []fileJob) error {
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	workerCount := runtime.GOMAXPROCS(0)
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > len(jobs) {
+		workerCount = len(jobs)
+	}
+
+	jobCh := make(chan fileJob)
+	resultCh := make(chan fileResult, workerCount)
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				content, err := os.ReadFile(job.absPath)
+				if err != nil {
+					resultCh <- fileResult{err: err}
+					continue
+				}
+				resultCh <- fileResult{
+					file: File{
+						Path:    job.rel,
+						Content: content,
+						Hash:    digest(content),
+					},
+				}
+			}
+		}()
+	}
+	go func() {
+		for _, job := range jobs {
+			jobCh <- job
+		}
+		close(jobCh)
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	for result := range resultCh {
+		if result.err != nil {
+			return result.err
+		}
+		s.files[result.file.Path] = result.file
+	}
+	return nil
 }
 
 func (s *BuildSnapshot) Freeze() *Snapshot {
@@ -197,6 +261,10 @@ func (s *BuildSnapshot) Freeze() *Snapshot {
 		files:    cloneFiles(s.files),
 		dirs:     cloneDirs(s.dirs),
 	}
+}
+
+func (s *BuildSnapshot) Builder() *CacheBuilder {
+	return s.builder
 }
 
 func (s *BuildSnapshot) Files() []File {
@@ -284,6 +352,32 @@ func (s *Snapshot) Dir(rel string) (*Dir, bool) {
 		return nil, false
 	}
 	return &Dir{repo: s, rel: rel}, true
+}
+
+func (s *Snapshot) DirView(rel string, subdirs []string, regularFiles []string) (*Dir, bool) {
+	base, ok := s.Dir(rel)
+	if !ok {
+		return nil, false
+	}
+	if subdirs != nil {
+		base.subdirViews = make([]*Dir, 0, len(subdirs))
+		for _, name := range subdirs {
+			child, ok := s.Dir(path.Join(rel, name))
+			if ok {
+				base.subdirViews = append(base.subdirViews, child)
+			}
+		}
+	}
+	if regularFiles != nil {
+		base.regularFileViews = make([]FileRef, 0, len(regularFiles))
+		for _, name := range regularFiles {
+			fileRel := cleanRepoPath(path.Join(rel, name))
+			if _, ok := s.files[fileRel]; ok {
+				base.regularFileViews = append(base.regularFileViews, FileRef{repo: s, rel: fileRel})
+			}
+		}
+	}
+	return base, true
 }
 
 func (s *Snapshot) File(path string) (File, bool) {
@@ -402,6 +496,14 @@ func (d *Dir) Child(name string) (*Dir, bool) {
 	if d == nil || d.repo == nil {
 		return nil, false
 	}
+	if d.subdirViews != nil {
+		for _, child := range d.subdirViews {
+			if child != nil && child.Name() == name {
+				return child, true
+			}
+		}
+		return nil, false
+	}
 	rel := cleanRepoPath(path.Join(d.rel, name))
 	if _, ok := d.repo.dirs[rel]; !ok {
 		return nil, false
@@ -412,6 +514,9 @@ func (d *Dir) Child(name string) (*Dir, bool) {
 func (d *Dir) Subdirs() []*Dir {
 	if d == nil || d.repo == nil {
 		return nil
+	}
+	if d.subdirViews != nil {
+		return append([]*Dir(nil), d.subdirViews...)
 	}
 	entries, ok := d.repo.dirs[d.rel]
 	if !ok {
@@ -430,6 +535,9 @@ func (d *Dir) Subdirs() []*Dir {
 func (d *Dir) RegularFiles() []FileRef {
 	if d == nil || d.repo == nil {
 		return nil
+	}
+	if d.regularFileViews != nil {
+		return append([]FileRef(nil), d.regularFileViews...)
 	}
 	entries, ok := d.repo.dirs[d.rel]
 	if !ok {

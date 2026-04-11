@@ -156,6 +156,35 @@ func TestWalkLoadsBuildFileAndGenFiles(t *testing.T) {
 	}
 }
 
+func TestWalkPackageDirRespectsExcludeDirective(t *testing.T) {
+	root := t.TempDir()
+	writeWalkFile(t, filepath.Join(root, "BUILD.bazel"), "# gazelle:exclude *_test.go\n")
+	writeWalkFile(t, filepath.Join(root, "a.go"), "package root\n")
+	writeWalkFile(t, filepath.Join(root, "a_test.go"), "package root\n")
+
+	repo, err := buildFrozenSnapshot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+
+	err = Walk(repo, cfg, []config.Configurer{&Configurer{}}, func(args FuncArgs) error {
+		var names []string
+		for _, file := range args.PackageDir.RegularFiles() {
+			names = append(names, file.Name())
+		}
+		if !reflect.DeepEqual(names, []string{"BUILD.bazel", "a.go"}) {
+			t.Fatalf("RegularFiles = %#v, want %#v", names, []string{"BUILD.bazel", "a.go"})
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestConfigurerPreservesPreconfiguredBuildFileNames(t *testing.T) {
 	cfg := config.New()
 	cfg.RepoRoot = t.TempDir()

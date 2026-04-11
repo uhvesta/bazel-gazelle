@@ -134,6 +134,46 @@ func (b *CacheBuilder) Parse(path string, data []byte, parser Parser) (LookupRes
 	return result, nil
 }
 
+// Check reports whether an entry can be reused without mutating the builder.
+// This is intended for the coordinator to decide whether worker parsing is
+// needed before dispatching jobs.
+func (b *CacheBuilder) Check(path string, data []byte, parser Parser) (LookupResult, bool, error) {
+	if parser == nil {
+		return LookupResult{}, false, fmt.Errorf("nil parser")
+	}
+	if parser.Key() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser key must not be empty")
+	}
+	if parser.Version() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser version must not be empty")
+	}
+
+	contentHash := digest(data)
+	key := cacheKey{Path: path, ParserKey: parser.Key()}
+	entry, ok := b.entries[key]
+	if !ok || entry.ParserVersion != parser.Version() || entry.ContentHash != contentHash {
+		return LookupResult{}, false, nil
+	}
+
+	model, err := parser.Decode(entry.EncodedModel)
+	if err != nil {
+		return LookupResult{}, false, fmt.Errorf("decode cached model for %s with parser %s: %w", path, parser.Key(), err)
+	}
+	return LookupResult{
+		Model:       model,
+		ContentHash: entry.ContentHash,
+		ModelHash:   entry.ModelHash,
+		CacheHit:    true,
+	}, true, nil
+}
+
+// StoreEntry records a parsed entry in the builder. This is intended for the
+// single coordinator goroutine after worker parsing completes.
+func (b *CacheBuilder) StoreEntry(entry Entry) {
+	key := cacheKey{Path: entry.Path, ParserKey: entry.ParserKey}
+	b.entries[key] = cloneEntry(entry)
+}
+
 func (b *CacheBuilder) Freeze() *Cache {
 	entries := make(map[cacheKey]Entry, len(b.entries))
 	for key, entry := range b.entries {

@@ -1,11 +1,15 @@
 package run
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
 	"flag"
 	"fmt"
 	"log"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/label"
@@ -223,12 +227,18 @@ func Run(opts Options) (*vfs.Cache, error) {
 	}()
 
 	for _, v := range visits {
+		var wg sync.WaitGroup
 		for i, r := range v.rules {
-			from := label.New(opts.Config.RepoName, v.pkgRel, r.Name())
-			if rslv := mrslv.Resolver(r, v.pkgRel); rslv != nil {
-				rslv.Resolve(v.config, ruleIndex, rc, r, v.imports[i], from)
-			}
+			wg.Add(1)
+			go func(i int, r *rule.Rule) {
+				defer wg.Done()
+				from := label.New(opts.Config.RepoName, v.pkgRel, r.Name())
+				if rslv := mrslv.Resolver(r, v.pkgRel); rslv != nil {
+					rslv.Resolve(v.config, ruleIndex, rc, r, v.imports[i], from)
+				}
+			}(i, r)
 		}
+		wg.Wait()
 		merger.MergeFile(v.file, v.empty, v.rules, merger.PostResolve, unionKindInfoMaps(kinds, v.mappedKindInfo), v.config.AliasMap)
 	}
 
@@ -242,6 +252,11 @@ func Run(opts Options) (*vfs.Cache, error) {
 	}
 
 	return repoSnapshot.Cache(), nil
+}
+
+func vfsDigest(data []byte) string {
+	sum := sha256.Sum256(data)
+	return hex.EncodeToString(sum[:])
 }
 
 func initConfigurers(c *config.Config, cexts []config.Configurer) error {
@@ -258,12 +273,83 @@ func initConfigurers(c *config.Config, cexts []config.Configurer) error {
 }
 
 func primeParsers(repo *vfs.BuildSnapshot) error {
+	type parseJob struct {
+		file   vfs.File
+		parser vfs.Parser
+	}
+	type parseResult struct {
+		entry vfs.Entry
+		err   error
+	}
+
+	var jobs []parseJob
 	for _, file := range repo.Files() {
 		for _, parser := range repo.MatchingParsers(file.Path) {
-			if _, err := repo.GetModel(file.Path, parser.Key()); err != nil {
-				return fmt.Errorf("prime parser %s for %s: %w", parser.Key(), file.Path, err)
+			if _, hit, err := repo.Builder().Check(file.Path, file.Content, parser); err != nil {
+				return fmt.Errorf("check parser %s for %s: %w", parser.Key(), file.Path, err)
+			} else if hit {
+				continue
 			}
+			jobs = append(jobs, parseJob{file: file, parser: parser})
 		}
+	}
+	if len(jobs) == 0 {
+		return nil
+	}
+
+	workerCount := runtime.GOMAXPROCS(0)
+	if workerCount < 1 {
+		workerCount = 1
+	}
+	if workerCount > len(jobs) {
+		workerCount = len(jobs)
+	}
+
+	jobCh := make(chan parseJob)
+	resultCh := make(chan parseResult, workerCount)
+	var wg sync.WaitGroup
+	for i := 0; i < workerCount; i++ {
+		wg.Add(1)
+		go func() {
+			defer wg.Done()
+			for job := range jobCh {
+				model, err := job.parser.Parse(job.file.Path, job.file.Content)
+				if err != nil {
+					resultCh <- parseResult{err: fmt.Errorf("parse parser %s for %s: %w", job.parser.Key(), job.file.Path, err)}
+					continue
+				}
+				encoded, err := job.parser.Encode(model)
+				if err != nil {
+					resultCh <- parseResult{err: fmt.Errorf("encode parser %s for %s: %w", job.parser.Key(), job.file.Path, err)}
+					continue
+				}
+				resultCh <- parseResult{
+					entry: vfs.Entry{
+						Path:          job.file.Path,
+						ParserKey:     job.parser.Key(),
+						ParserVersion: job.parser.Version(),
+						ContentHash:   job.file.Hash,
+						ModelHash:     vfsDigest(encoded),
+						EncodedModel:  encoded,
+					},
+				}
+			}
+		}()
+	}
+	go func() {
+		for _, job := range jobs {
+			jobCh <- job
+		}
+		close(jobCh)
+		wg.Wait()
+		close(resultCh)
+	}()
+
+	for result := range resultCh {
+		if result.err != nil {
+			return result.err
+		}
+		repo.Builder().StoreEntry(result.entry)
 	}
 	return nil
 }

@@ -133,7 +133,7 @@ func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, kn
 
 	err = fn(FuncArgs{
 		Repo:       repo,
-		PackageDir: mustDir(repo, rel),
+		PackageDir: mustDir(repo, rel, subdirs, regularFiles),
 		Dir:        filepath.Join(repo.Root, filepath.FromSlash(rel)),
 		Rel:        rel,
 		Config:     c,
@@ -144,8 +144,8 @@ func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, kn
 	return vi, err
 }
 
-func mustDir(repo *vfs.Snapshot, rel string) *vfs.Dir {
-	dir, ok := repo.Dir(rel)
+func mustDir(repo *vfs.Snapshot, rel string, subdirs []string, regularFiles []string) *vfs.Dir {
+	dir, ok := repo.DirView(rel, subdirs, regularFiles)
 	if !ok {
 		panic(fmt.Sprintf("directory missing from snapshot: %s", rel))
 	}
