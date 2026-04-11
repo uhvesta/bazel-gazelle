@@ -24,8 +24,12 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//config",
+        "//flag",
+        "//internal/module",
+        "//internal/version",
         "//label",
         "//language",
+        "//pathtools",
         "//repo",
         "//resolve",
         "//rule",

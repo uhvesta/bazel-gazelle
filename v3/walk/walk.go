@@ -64,9 +64,8 @@ func Walk(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, fn Fu
 }
 
 type visitInfo struct {
-	containedByParent bool
-	regularFiles      []string
-	subdirs           []string
+	regularFiles []string
+	subdirs      []string
 }
 
 func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, knownDirectives map[string]bool, rel string, fn Func) (visitInfo, error) {
@@ -97,7 +96,6 @@ func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, kn
 	if wc != nil && wc.isExcludedDir(rel) {
 		return visitInfo{}, nil
 	}
-	containedByParent := file == nil && wc != nil && wc.updateOnly
 
 	var subdirs, regularFiles []string
 	for _, name := range entries {
@@ -120,9 +118,8 @@ func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, kn
 	sort.Strings(regularFiles)
 
 	vi := visitInfo{
-		containedByParent: containedByParent,
-		regularFiles:      append([]string(nil), regularFiles...),
-		subdirs:           append([]string(nil), subdirs...),
+		regularFiles: append([]string(nil), regularFiles...),
+		subdirs:      append([]string(nil), subdirs...),
 	}
 
 	for _, subdir := range subdirs {
@@ -131,20 +128,9 @@ func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, kn
 		if err != nil {
 			return visitInfo{}, err
 		}
-		if !containedByParent || !child.containedByParent {
-			continue
-		}
-		for _, f := range child.regularFiles {
-			regularFiles = append(regularFiles, path.Join(subdir, f))
-		}
-		for _, d := range child.subdirs {
-			subdirs = append(subdirs, path.Join(subdir, d))
-		}
+		_ = child
 	}
 
-	if containedByParent {
-		return vi, nil
-	}
 	err = fn(FuncArgs{
 		Repo:       repo,
 		PackageDir: mustDir(repo, rel),

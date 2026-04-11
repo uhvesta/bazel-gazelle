@@ -30,6 +30,7 @@ go_test(
         "//rule",
         "//v3/internal/vfs",
         "//v3/language",
+        "//v3/language/go",
     ],
 )
 

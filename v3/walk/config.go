@@ -26,11 +26,9 @@ const (
 )
 
 type walkConfig struct {
-	updateOnly          bool
 	ignoreFilter        *ignoreFilter
 	excludes            []string
 	ignore              bool
-	follow              []string
 	validBuildFileNames []string
 }
 
@@ -47,7 +45,6 @@ func (wc *walkConfig) clone() *walkConfig {
 	}
 	wcCopy := *wc
 	wcCopy.excludes = append([]string(nil), wc.excludes...)
-	wcCopy.follow = append([]string(nil), wc.follow...)
 	return &wcCopy
 }
 
@@ -66,7 +63,11 @@ type Configurer struct {
 
 func (cr *Configurer) RegisterFlags(fs *flag.FlagSet, cmd string, c *config.Config) {
 	fs.Var(&gzflag.MultiFlag{Values: &cr.cliExcludes}, "exclude", "pattern that should be ignored (may be repeated)")
-	fs.StringVar(&cr.cliBuildFileNames, "build_file_name", strings.Join(config.DefaultValidBuildFileNames, ","), "comma-separated list of valid build file names")
+	defaultBuildFileNames := c.ValidBuildFileNames
+	if len(defaultBuildFileNames) == 0 {
+		defaultBuildFileNames = config.DefaultValidBuildFileNames
+	}
+	fs.StringVar(&cr.cliBuildFileNames, "build_file_name", strings.Join(defaultBuildFileNames, ","), "comma-separated list of valid build file names")
 }
 
 func (cr *Configurer) CheckFlags(_ *flag.FlagSet, c *config.Config) error {
@@ -110,10 +111,8 @@ func configureForWalk(parent *walkConfig, rel string, f *rule.File) *walkConfig 
 			wc.validBuildFileNames = strings.Split(d.Value, ",")
 		case "generation_mode":
 			switch generationModeType(strings.TrimSpace(d.Value)) {
-			case generationModeUpdate:
-				wc.updateOnly = true
-			case generationModeCreate:
-				wc.updateOnly = false
+			case generationModeUpdate, generationModeCreate:
+				log.Printf("//%s: gazelle:generation_mode is not supported in v3 and will be ignored", f.Pkg)
 			default:
 				log.Printf("unknown generation_mode %q in //%s", d.Value, f.Pkg)
 			}
@@ -125,12 +124,7 @@ func configureForWalk(parent *walkConfig, rel string, f *rule.File) *walkConfig 
 			}
 			wc.excludes = append(wc.excludes, p)
 		case "follow":
-			p := path.Join(rel, d.Value)
-			if err := checkPathMatchPattern(p); err != nil {
-				log.Printf("the follow pattern is not valid %q: %s", p, err)
-				continue
-			}
-			wc.follow = append(wc.follow, p)
+			log.Printf("//%s: gazelle:follow is not supported in v3 and will be ignored", f.Pkg)
 		case "ignore":
 			if d.Value != "" {
 				log.Printf("the ignore directive does not take any arguments. Did you mean gazelle:exclude? in //%s '# gazelle:ignore %s'", f.Pkg, d.Value)

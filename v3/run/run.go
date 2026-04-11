@@ -22,6 +22,7 @@ type Options struct {
 	Config      *config.Config
 	Languages   []v3language.Language
 	Configurers []config.Configurer
+	Prepared    bool
 	Cache       *vfs.Cache
 	Emit        func(*config.Config, *rule.File) error
 	Repos       []repo.Repo
@@ -59,8 +60,10 @@ func Run(opts Options) (*vfs.Cache, error) {
 	for _, lang := range opts.Languages {
 		configurers = append(configurers, lang)
 	}
-	if err := initConfigurers(opts.Config, configurers); err != nil {
-		return nil, err
+	if !opts.Prepared {
+		if err := initConfigurers(opts.Config, configurers); err != nil {
+			return nil, err
+		}
 	}
 
 	registry := vfs.NewRegistry()

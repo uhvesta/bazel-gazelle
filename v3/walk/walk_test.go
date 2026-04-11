@@ -2,9 +2,11 @@ package walk
 
 import (
 	"flag"
+	"log"
 	"os"
 	"path/filepath"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
@@ -151,6 +153,56 @@ func TestWalkLoadsBuildFileAndGenFiles(t *testing.T) {
 	})
 	if err != nil {
 		t.Fatal(err)
+	}
+}
+
+func TestConfigurerPreservesPreconfiguredBuildFileNames(t *testing.T) {
+	cfg := config.New()
+	cfg.RepoRoot = t.TempDir()
+	cfg.ValidBuildFileNames = []string{"BUILD.custom", "BUILD.alt"}
+
+	cr := &Configurer{}
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	cr.RegisterFlags(fs, "fix", cfg)
+	if err := cr.CheckFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	if !reflect.DeepEqual(cfg.ValidBuildFileNames, []string{"BUILD.custom", "BUILD.alt"}) {
+		t.Fatalf("ValidBuildFileNames = %#v, want %#v", cfg.ValidBuildFileNames, []string{"BUILD.custom", "BUILD.alt"})
+	}
+}
+
+func TestWalkIgnoresUnsupportedGenerationModeDirective(t *testing.T) {
+	root := t.TempDir()
+	writeWalkFile(t, filepath.Join(root, "BUILD.bazel"), "# gazelle:generation_mode update_only\n")
+
+	repo, err := buildFrozenSnapshot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+
+	var logBuf strings.Builder
+	prevWriter := log.Writer()
+	log.SetOutput(&logBuf)
+	defer log.SetOutput(prevWriter)
+
+	var update bool
+	err = Walk(repo, cfg, []config.Configurer{&Configurer{}}, func(args FuncArgs) error {
+		update = args.Update
+		return nil
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !update {
+		t.Fatal("expected update_only to be ignored in v3")
+	}
+	if !strings.Contains(logBuf.String(), "gazelle:generation_mode is not supported in v3") {
+		t.Fatalf("expected unsupported generation_mode warning, got %q", logBuf.String())
 	}
 }
 

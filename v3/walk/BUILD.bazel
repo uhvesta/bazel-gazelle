@@ -10,8 +10,10 @@ go_library(
     visibility = ["//visibility:public"],
     deps = [
         "//config",
+        "//flag",
         "//rule",
         "//v3/internal/vfs",
+        "//v3/language",
         "@com_github_bmatcuk_doublestar_v4//:doublestar",
         "@com_github_bazelbuild_buildtools//build",
     ],
