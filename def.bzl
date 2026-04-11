@@ -49,11 +49,17 @@ load(
     "//internal/generationtest:generationtest.bzl",
     _gazelle_generation_test = "gazelle_generation_test",
 )
+load(
+    "//v3:def.bzl",
+    _gazelle_v3_binary = "gazelle_v3_binary",
+    _DEFAULT_V3_LANGUAGES = "DEFAULT_LANGUAGES",
+)
 
 go_repository = _go_repository
 git_repository = _git_repository
 http_archive = _http_archive
 gazelle_binary = _gazelle_binary
+gazelle_v3_binary = _gazelle_v3_binary
 gazelle_generation_test = _gazelle_generation_test
 
 DEFAULT_LANGUAGES = [
@@ -61,6 +67,8 @@ DEFAULT_LANGUAGES = [
     Label("//language/proto"),
     Label("//language/go"),
 ]
+
+DEFAULT_V3_LANGUAGES = _DEFAULT_V3_LANGUAGES
 
 def _valid_env_variable_name(name):
     """ Returns if a string is in the regex [a-zA-Z_][a-zA-Z0-9_]*

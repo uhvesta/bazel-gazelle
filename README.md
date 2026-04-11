@@ -1,288 +1,236 @@
-# Gazelle build file generator
+# Gazelle
 
-Gazelle is a build file generator for Bazel projects. It can create new BUILD.bazel files for a project that follows language conventions, and it can update existing build files to include new sources, dependencies, and options. Gazelle natively supports Go and protobuf, and it may be [extended](extend.md) to support new languages and custom rule sets.
+Gazelle generates and updates Bazel `BUILD.bazel` files. The traditional Gazelle pipeline and the new `v3` pipeline both preserve the same high-level rule-generation model:
 
-Gazelle may be run by Bazel using the [`gazelle` rule](#bazel-rule) or it may be installed and run as a command line tool. Gazelle can also generate build files for external repositories as part of the [`go_repository`](reference.md#go_repository) rule.
+1. discover packages and configuration
+2. generate/update rules for each package
+3. build a repo-wide index of importable rules
+4. resolve dependencies against that index
+5. write updated BUILD files
 
-*Gazelle is under active development. Its interface and the rules it generates may change. Gazelle is not an official Google product.*
+The older, general project README was moved to [docs/README.md](docs/README.md). This root README is now focused on how Gazelle works, how `v3` differs, and how to use incremental reruns safely.
 
-Mailing list: [bazel-go-discuss](https://groups.google.com/forum/#!forum/bazel-go-discuss)
+**Contents**
 
-Slack: [#go on Bazel Slack](https://bazelbuild.slack.com/archives/CDBP88Z0D), [#bazel on Go Slack](https://gophers.slack.com/archives/C1SCQE54N)
+- [How Gazelle Works](#how-gazelle-works)
+- [How V3 Works](#how-v3-works)
+- [Incremental Reruns](#incremental-reruns)
+- [Watchman Setup](#watchman-setup)
+- [Why V3 Exists](#why-v3-exists)
+- [Reference](#reference)
 
-*rules_go and Gazelle are getting community maintainers! If you are a regular
-user of either project and are interested in helping out with development,
-code reviews, and issue triage, please drop by our Slack channels (linked above)
-and say hello!*
+## How Gazelle Works
 
-**See also:**
+At a high level, classic Gazelle walks the repository in a depth-first manner, propagating configuration from parent directories to children, then generating package-level rules and finally resolving dependencies across the whole repo.
 
-* [How Gazelle Works](how-gazelle-works.md)
-* [`go_repository`](reference.md#go_repository)
-* [Extending Gazelle](extend.md)
-* [Avoiding conflicts with proto rules](https://github.com/bazelbuild/rules_go/blob/master/proto/core.rst#avoiding-conflicts)
+The important ordering is:
 
-## Supported languages
+1. read repo-level configuration like `WORKSPACE`, `REPO.bazel`, `.bazelignore`, directives, and language flags
+2. walk directories depth-first
+3. for each directory:
+   - load that directory's `BUILD` file if one exists
+   - apply `Configure` logic for all languages/configurers
+   - recurse into child directories
+   - run package-level rule generation/update
+4. after rule generation across the repo, build the global rule index
+5. run `Resolve` against that full index
+6. fix loads and write files
 
-Gazelle can generate Bazel BUILD files for many languages:
+The walk is easier to understand with a concrete example. Suppose the repo looks like this:
 
-* **Go:** Go supported is included here in bazel-gazelle, see below.
-* **Haskell:**  Tweag's [rules_haskell](https://github.com/tweag/rules_haskell) has two extensions: [gazelle_cabal](https://github.com/tweag/gazelle_cabal), for generating rules from Cabal files, and [gazelle_haskell_modules](https://github.com/tweag/gazelle_haskell_modules) for even more fine-grained build definitions.
-* **Java:** bazel-contrib's [rules_jvm](https://github.com/bazel-contrib/rules_jvm) extensions include [a gazelle extension](https://github.com/bazel-contrib/rules_jvm/tree/main/java/gazelle) for generating `java_library`, `java_binary`, `java_test`, and `java_test_suite` rules.
-* **JavaScript / TypeScript:** Aspect provides [JavaScript and TypeScript Support](https://github.com/aspect-build/aspect-gazelle/tree/main/language/js). BenchSci's [rules_nodejs_gazelle](https://github.com/benchsci/rules_nodejs_gazelle) supports generating `ts_project`, `js_library`, `jest_test`, and `web_asset` rules, and is able to support module bundlers like Webpack and Next.js.
-* **Kotlin:** Aspect Build provides some [Kotlin Support](https://github.com/aspect-build/aspect-gazelle/tree/main/language/kotlin). Still under development, please check the README for currently available features.
-* **Protocol Buffers:** Support for the `proto_library` rule. Language-specific rules like `go_proto_library` are supported by other language extensions.
-* **Python:** [rules_python](https://github.com/bazel-contrib/rules_python) has an extension for generating `py_library`, `py_binary`, and `py_test` rules.
-* **R:** [rules_r](https://github.com/grailbio/rules_r) has an extension for generating rules for R package builds and tests.
-* **Rust:** [gazelle_rust](https://github.com/Calsign/gazelle_rust) is an extension for generating [rules_rust](https://github.com/bazelbuild/rules_rust) targets.
-* **Starlark:** [bazel-skylib](https://github.com/bazelbuild/bazel-skylib) has an extension for generating `bzl_library` rules. See [bazel_skylib/gazelle/bzl](https://github.com/bazelbuild/bazel-skylib/tree/main/gazelle/bzl).
-* **Swift:** [swift_gazelle_plugin](https://github.com/cgrindel/swift_gazelle_plugin) has an extension for generating `swift_library`, `swift_binary`, and   `swift_test` rules. It also includes facilities for resolving, downloading and building external Swift packages for a Bazel workspace.
-* **C/C++:** [gazelle_cc](https://github.com/EngFlow/gazelle_cc) has an extension for `cc_*` rules.
-
-If you know of an extension which could be linked here, please [open a PR](https://github.com/bazel-contrib/bazel-gazelle/edit/master/README.rst)!
-
-More languages can be added by [Extending Gazelle](extend.md). Chat with us in the `#gazelle` channel on [Bazel Slack](https://slack.bazel.build) if you'd like to discuss your design.
-
-If you've written your own extension, please consider open-sourcing it for use by the rest of the community. Note that such extensions belong in a language-specific repository, not in bazel-gazelle. See discussion in [#1030](https://github.com/bazelbuild/bazel-gazelle/issues/1030).
-
-## Setup
-
-### Bzlmod
-
-See the [Go Bzlmod docs](https://github.com/bazel-contrib/rules_go/blob/master/docs/go/core/bzlmod.md).
-
-The full documentation for the `go_deps` extension is in [extensions.md](extensions.md#go_deps).
-
-### WORKSPACE
-
-To use Gazelle in a new project, add the `bazel_gazelle` repository and its dependencies to your WORKSPACE file and call `gazelle_dependencies`. It should look like this:
-
-```bzl
-load("@bazel_tools//tools/build_defs/repo:http.bzl", "http_archive")
-
-http_archive(
-    name = "io_bazel_rules_go",
-    integrity = "sha256-M6zErg9wUC20uJPJ/B3Xqb+ZjCPn/yxFF3QdQEmpdvg=",
-    urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/rules_go/releases/download/v0.48.0/rules_go-v0.48.0.zip",
-        "https://github.com/bazelbuild/rules_go/releases/download/v0.48.0/rules_go-v0.48.0.zip",
-    ],
-)
-
-http_archive(
-    name = "bazel_gazelle",
-    integrity = "sha256-12v3pg/YsFBEQJDfooN6Tq+YKeEWVhjuNdzspcvfWNU=",
-    urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/bazel-gazelle/releases/download/v0.37.0/bazel-gazelle-v0.37.0.tar.gz",
-        "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.37.0/bazel-gazelle-v0.37.0.tar.gz",
-    ],
-)
-
-
-load("@io_bazel_rules_go//go:deps.bzl", "go_register_toolchains", "go_rules_dependencies")
-load("@bazel_gazelle//:deps.bzl", "gazelle_dependencies", "go_repository")
-
-############################################################
-# Define your own dependencies here using go_repository.
-# Else, dependencies declared by rules_go/gazelle will be used.
-# The first declaration of an external repository "wins".
-############################################################
-
-go_rules_dependencies()
-
-go_register_toolchains(version = "1.20.5")
-
-gazelle_dependencies()
+```text
+.
+├── BUILD.bazel
+├── a
+│   ├── BUILD.bazel
+│   └── x.go
+└── b
+    ├── BUILD.bazel
+    └── y.go
 ```
 
-`gazelle_dependencies` supports optional arguments `go_env` (dict-mapping)
-to set project specific go environment variables and `go_env_inherit`
-(list of names) to copy selected variables from the host environment.
-This is useful when dependency fetching relies on runtime-provided
-authentication, proxy settings, or repository configuration that should
-not be checked into source control. If you are using a
-`WORKSPACE.bazel` file, you will need to specify that using:
+Gazelle conceptually does:
 
-```bzl
-gazelle_dependencies(go_repository_default_config = "//:WORKSPACE.bazel")
+1. load `//:BUILD.bazel`
+2. run root `Configure`
+3. recurse into `//a`
+4. load `//a:BUILD.bazel`
+5. run `Configure` for `a`
+6. generate/update package `a`
+7. recurse back
+8. recurse into `//b`
+9. load `//b:BUILD.bazel`
+10. run `Configure` for `b`
+11. generate/update package `b`
+12. finish the walk
+13. build the rule index
+14. resolve imports for generated rules in `a` and `b`
+15. write files
+
+The language hooks line up with that ordering:
+
+- `Configure`: parent-before-child, while walking
+- `GenerateRules`: package-local, during the walk
+- `Imports`: used for index construction after generation
+- `Resolve`: after the whole index exists
+- `FixLoads`: just before emit
+
+That model is simple and deterministic, but it mixes filesystem IO and semantic work together during the run.
+
+## How V3 Works
+
+`v3` keeps the same logical algorithm, but changes how inputs are prepared.
+
+Instead of having languages read directly from the OS while Gazelle is walking, `v3` does this:
+
+1. build a repo snapshot / VFS
+2. parse and cache file models in that VFS
+3. freeze the snapshot into an immutable read-only view
+4. run the normal Gazelle-style walk/generate/index/resolve algorithm against the frozen snapshot
+
+So the big shift is:
+
+- classic Gazelle: IO and rule generation are interleaved
+- `v3`: IO is front-loaded into a snapshot, then the algorithm runs in memory
+
+The current `v3` ordering is:
+
+1. build VFS
+2. prime parser cache
+3. freeze snapshot
+4. DFS walk with config propagation
+5. generate rules
+6. build rule index
+7. resolve
+8. emit
+
+That lets languages use:
+
+- `Repo.ReadFile(...)`
+- `Repo.GetModel(path, parserKey)`
+- `PackageDir.RegularFiles()`
+- `PackageDir.Subdirs()`
+
+instead of direct `os.ReadFile` style access.
+
+## Incremental Reruns
+
+`v3` now supports two CLI modes:
+
+```text
+gazelle-v3 run
+gazelle-v3 rerun <changed paths...>
 ```
 
-Add the code below to the BUILD or BUILD.bazel file in the root directory
-of your repository.
+`run` does a full snapshot build and saves state in the OS cache directory.
 
-**Important:** For Go projects, replace the string after `prefix` with
-the portion of your import path that corresponds to your repository.
+`rerun` does this:
 
-```bzl
-load("@bazel_gazelle//:def.bzl", "gazelle")
+1. load the saved frozen snapshot
+2. patch only the changed/new/deleted paths
+3. reuse cached parsed models for unchanged files
+4. rerun the whole Gazelle algorithm against the patched snapshot
+5. save the updated snapshot back to disk
 
-# gazelle:prefix github.com/example/project
-gazelle(name = "gazelle")
+This means `rerun` is already useful even without a built-in watcher.
+
+### No-op Protection
+
+Two safeguards are important for stable incremental use:
+
+1. unchanged patched files are ignored
+   - if a changed path is passed to `rerun` but the file content hash is unchanged, the patch is a no-op
+   - if all incoming changes are no-ops, `v3` skips the full walk/generate/resolve algorithm entirely
+
+2. unchanged BUILD output is not rewritten
+   - before writing a `BUILD.bazel` file, `v3` compares the formatted output to the existing file bytes
+   - if the content is identical, it does not rewrite the file
+
+Those two behaviors are what make external watch tooling practical without falling into self-triggered loops.
+
+## Watchman Setup
+
+There is no built-in Watchman daemon in `v3` yet. The intended model is:
+
+- let Watchman or another tool detect changed files
+- pass the changed repo-relative paths to `gazelle-v3 rerun`
+
+The important part is that the watcher batches and coalesces file changes before invoking Gazelle.
+
+A practical shape is:
+
+1. do one initial cold run
+
+```sh
+bazel run //v3/cmd/gazelle -- run
 ```
 
-After adding this code, you can run Gazelle with Bazel.
+2. configure Watchman to invoke a small wrapper script
+3. the wrapper script passes the changed file list to:
 
-```
-bazel run //:gazelle
-```
-
-This will generate new BUILD.bazel files for your project. You can run the same command in the future to update existing BUILD.bazel files to include new source files or options.
-
-You can write other `gazelle` rules to run alternate commands like `update-repos`.
-
-```bzl
-gazelle(
-    name = "gazelle-update-repos",
-    args = [
-        "-from_file=go.mod",
-        "-to_macro=deps.bzl%go_dependencies",
-        "-prune",
-    ],
-    command = "update-repos",
-)
+```sh
+bazel run //v3/cmd/gazelle -- rerun path/to/file1.go path/to/file2.proto
 ```
 
-You can also pass additional arguments to Gazelle after a `--` argument.
+Recommended filters:
 
-```
-bazel run //:gazelle -- update-repos -from_file=go.mod -to_macro=deps.bzl%go_dependencies
-```
+- ignore `.git`
+- ignore `bazel-*`
+- ignore editor temp files
+- ignore generated files you know Gazelle should not inspect
 
-After running `update-repos`, you might want to run `bazel run //:gazelle` again, as the `update-repos` command can affect the output of a normal run of Gazelle.
+Because `rerun` skips unchanged content and emit skips identical BUILD rewrites, a Watchman-driven loop can be stable without first building watcher logic into Gazelle itself.
 
-To verify that all BUILD files are update-to-date, you can use the `gazelle_test` rule.
+## Why V3 Exists
 
-```
-load("@bazel_gazelle//:def.bzl", "gazelle_test")
+`v3` is not about changing the semantic rule-generation model. It is about changing the execution model.
 
-gazelle_test(
-    name = "gazelle_test",
-    workspace = "//:BUILD.bazel", # a file in the workspace root, where the gazelle will be run
-)
-```
+Benefits:
 
-However, please note that gazelle_test cannot be cached.
+- parser results are cached instead of recomputed every run
+- repo IO is centralized behind a VFS
+- the run phase works against immutable in-memory state
+- incremental reruns can patch a prior snapshot instead of rebuilding everything
+- no-op reruns can short-circuit almost completely
 
-## Usage
+This is different from classic lazy indexing.
 
-### Command line
+### V3 vs Lazy Indexing
 
-In most cases, you'll invoke Gazelle through Bazel using the `gazelle` rule:
+Lazy indexing optimizes one part of the classic algorithm:
 
-```
-bazel run //:gazelle
-```
+- it avoids indexing the whole repo eagerly
+- it is still fundamentally tied to the classic filesystem-driven traversal model
 
-To run Gazelle in specific directories, or with additional flags:
+`v3` is broader:
 
-```
-bazel run //:gazelle -- [flags...] [directories...]
-```
+- it snapshots the repo
+- it caches parsed models
+- it supports saved state across process restarts
+- it supports path-based patching for reruns
 
-If you build and install a Gazelle binary, you can also invoke it directly without `bazel run`.
+Lazy indexing also depends on reasonably strong path conventions. In practice, it works best when import paths, package roots, and directory layout line up in a predictable way. Some monorepos and mixed-language codebases do not have those conventions, which makes lazy indexing less effective or harder to configure correctly.
 
-```
-gazelle [fix|update] [flags...] [directories...]
-```
+So lazy indexing is mainly an indexing optimization inside the classic design, while `v3` is a different execution substrate for the whole algorithm and does not depend as heavily on those path-structure assumptions.
 
-### Configuration directives
+### Why V3 Can Be Faster
 
-Gazelle can be configured with *directives*, which are written as top-level comments in build files. Most options that can be set on the command line can also be set using directives. Some options can only be set with directives.
+For a cold run on a repo, `v3` still pays snapshot cost. The real performance payoff comes from reruns:
 
-Directive comments have the form `# gazelle:key value`. For example:
+- unchanged files are not reparsed
+- unchanged snapshots can skip the whole algorithm
+- changed-file reruns avoid rebuilding the whole VFS
 
-```bzl
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+That is why `v3` is most interesting for:
 
-# gazelle:prefix github.com/example/project
-# gazelle:build_file_name BUILD,BUILD.bazel
+- editor-triggered reruns
+- watcher-driven workflows
+- repeated local development runs
 
-go_library(
-    name = "go_default_library",
-    srcs = ["example.go"],
-    importpath = "github.com/example/project",
-    visibility = ["//visibility:public"],
-)
-```
+## Reference
 
-Directives apply in the directory where they are set *and* in subdirectories. This means, for example, if you set `# gazelle:prefix` in the build file in your project's root directory, it affects your whole project. If you set it in a subdirectory, it only affects rules in that subtree.
-
-### Reference
-
-For a full reference on Gazelle's configuration directives, flags, and rules, see the following pages:
-
-- [Configuration and command line reference](gazelle-reference.md)
-- [Go reference](language/go/reference.md)
-- [Proto reference](language/proto/reference.md)
-- [Rule reference](reference.md) (for `gazelle` and `gazelle_binary` rules)
-
-Extensions defined outside this repo provide their own references.
-
-### Lazy indexing in `fix` and `update`
-
-By default, `fix` and `update` read all build files in a repo to build an index of library rules (see [Dependency resolution](#dependency-resolution)) when Gazelle starts. This can take a long time on a large repo. To avoid this problem, Gazelle can lazily index specific directories, with help from extensions that support lazy indexing.
-
-To configure lazy indexing with Go, add `go_search` directives like this:
-
-```bzl
-# gazelle:go_search third_party/go
-# gazelle:go_search replace/b example.com/b
-```
-
-These directives point to directories that contain Go code outside the current module, with an optional package prefix. `go_search` directives are not necessary if you're following regular Go module conventions or are using a Go `vendor` directory.
-
-To configure lazy indexing with protobuf, add `proto_search` directives like this:
-
-```bzl
-# gazelle:proto_search third_party/proto api
-```
-
-The two arguments are a prefix to remove from the import path and a prefix to add. These correspond to the [`strip_import_prefix`](https://docs.bazel.build/versions/master/be/protocol-buffer.html#proto_library.strip_import_prefix) and [`import_prefix`](https://docs.bazel.build/versions/master/be/protocol-buffer.html#proto_library.import_prefix) attributes of [`proto_library`](https://bazel.build/reference/be/protocol-buffer#proto_library). They tell Gazelle how to transform an import path read from a .proto source file into a repo-root-relative path to a directory that may contain the imported file.
-
-To use Gazelle with lazy indexing, run with `-r=false -index=lazy`, and pass the directories to update on the command line.
-
-```bzl
-gazelle -r=false -index=lazy path/to/dir1 path/to/dir2
-```
-
-You can configure your `gazelle` Bazel target to pass these flags automatically:
-
-```bzl
-load("@gazelle//:def.bzl", "gazelle", "gazelle_binary")
-
-gazelle(
-    name = "gazelle",
-    command = "fix",
-    extra_args = ["-r=false", "-index=lazy"],
-    gazelle = ":gazelle_binary",
-)
-
-gazelle_binary(
-    name = "gazelle_binary",
-    ...
-)
-```
-
-## Compatibility with Go
-
-Gazelle is compatible with supported releases of Go, per the [Go Release Policy](https://golang.org/doc/devel/release.html#policy). The Go Team officially supports the current and previous minor releases. Older releases are not supported and don't receive bug fixes or security updates.
-
-Gazelle may use language and library features from the oldest supported release.
-
-## Dependency resolution
-
-One of Gazelle's most important jobs is resolving library import strings (like `import "golang.org/x/sys/unix"`) to Bazel labels (like `@org_golang_x_sys//unix:go_default_library`). Gazelle follows the rules below to resolve dependencies:
-
-1. If the import to be resolved is part of a standard library, no explicit dependency is written. For example, in Go, you don't need to declare that you depend on `"fmt"`.
-1. If a `# gazelle:resolve` directive matches the import to be resolved, the label at the end of the directive will be used.
-1. If proto rule generation is enabled, special rules will be used when importing certain libraries. These rules may be disabled by adding `# gazelle:proto disable_global` to a build file (this will affect subdirectories, too) or by passing `-proto disable_global` on the command line.
-    1. Imports of Well Known Types are mapped to rules in `@io_bazel_rules_go//proto/wkt`.
-    1. Imports of `github.com/golang/protobuf/ptypes`, `descriptor`, and `jsonpb` are mapped to special rules in `@com_github_golang_protobuf`. See [Avoiding conflicts with proto rules](https://github.com/bazel-contrib/rules_go/blob/master/proto/core.rst#avoiding-conflicts).
-1. If the import to be resolved is in the library index, the import will be resolved to that library. If `-index=all`, Gazelle builds an index of library rules in the current repository before starting dependency resolution. This can take a while, since Gazelle visits every directory in the repository. If `-index=lazy`, then language extensions may hint at specific directories to visit, which can be much faster.
-    1. For Go, the match is based on the `importpath` attribute.
-    1. For proto, the match is based on the `srcs` attribute.
-1. If `-index=none` and a package is imported that has the current `go_prefix` as a prefix, Gazelle generates a label following a convention. For example, if the build file in `//src` set the prefix with `# gazelle:prefix example.com/repo/foo`, and you import the library `"example.com/repo/foo/bar`, the dependency will be `"//src/foo/bar:go_default_library"`.
-1. Otherwise, Gazelle will use the current `external` mode to resolve the dependency.
-    1. In `external` mode (the default), Gazelle will transform the import string into an external repository label. For example, `"golang.org/x/sys/unix"` would be resolved to `"@org_golang_x_sys//unix:go_default_library"`. Gazelle does not confirm whether the external repository is actually declared in WORKSPACE, but if there *is* a `go_repository` in WORKSPACE with a matching `importpath`, Gazelle will use its name. Gazelle does not index rules in external repositories, so it's possible the resolved dependency does not exist.
-    1. In `static` mode, Gazelle has the same behavior as `external` mode, except that it will not call out to the network for resolution when no matching import is found within WORKSPACE. Instead, it will skip the unknown import. This is the default mode for `go_repository` rules.
-    1. In `vendored` mode, Gazelle will transform the import string into a label in the vendor directory. For example, `"golang.org/x/sys/unix"` would be resolved to `"//vendor/golang.org/x/sys/unix:go_default_library"`. This mode is usually not necessary, since vendored libraries will be indexed and resolved using rule 4.
+- Old project README: [docs/README.md](docs/README.md)
+- Extension guide: [extend.md](extend.md)
+- Rule reference: [reference.md](reference.md)
+- Command/config reference: [gazelle-reference.md](gazelle-reference.md)
+- How classic Gazelle works: [how-gazelle-works.md](how-gazelle-works.md)
