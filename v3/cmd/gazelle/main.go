@@ -54,6 +54,8 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 
 	configurers := makeConfigurers(langs)
 	fs := flag.NewFlagSet("gazelle-v3", flag.ContinueOnError)
+	var timings bool
+	fs.BoolVar(&timings, "timings", false, "print per-phase v3 run timings to stderr")
 	fs.Usage = func() {
 		_ = help()
 	}
@@ -77,6 +79,7 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 		Languages:   langs,
 		Configurers: configurers,
 		Prepared:    true,
+		Timings:     timings,
 		Emit: func(c *config.Config, f *rule.File) error {
 			f.Sync()
 			return os.WriteFile(f.Path, f.Format(), 0o666)
@@ -109,6 +112,7 @@ Commands:
 Notes:
   v3 currently runs on the whole repository.
   Bare invocation is the same as 'run'.
+  Use -timings to print per-phase timing information.
   Path-scoped runs, rerun-with-changes, and watch mode are not wired into this CLI yet.
 `)
 	return flag.ErrHelp

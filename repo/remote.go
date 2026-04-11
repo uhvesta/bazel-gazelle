@@ -229,6 +229,18 @@ func (r *RemoteCache) PopulateFromGoMod(goModPath string) (err error) {
 	if err != nil {
 		return err
 	}
+	return r.PopulateFromGoModData(goModPath, data)
+}
+
+// PopulateFromGoModData reads go.mod contents and adds entries to the r.root
+// and r.mod maps based on the file's require directives. PopulateFromGoModData
+// does not override entries already in the cache.
+func (r *RemoteCache) PopulateFromGoModData(goModPath string, data []byte) (err error) {
+	defer func() {
+		if err != nil {
+			err = fmt.Errorf("reading module paths from %s: %w", goModPath, err)
+		}
+	}()
 	var versionFixer modfile.VersionFixer
 	f, err := modfile.Parse(goModPath, data, versionFixer)
 	if err != nil {
@@ -239,6 +251,13 @@ func (r *RemoteCache) PopulateFromGoMod(goModPath string) (err error) {
 			return rootValue{
 				root: req.Mod.Path,
 				name: label.ImportPathToBazelRepoName(req.Mod.Path),
+			}, nil
+		})
+		r.mod.ensure(req.Mod.Path, func() (any, error) {
+			return modValue{
+				path:  req.Mod.Path,
+				name:  label.ImportPathToBazelRepoName(req.Mod.Path),
+				known: true,
 			}, nil
 		})
 	}

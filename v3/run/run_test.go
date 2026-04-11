@@ -208,6 +208,45 @@ func TestRunWithGoLanguageGeneratesAndResolves(t *testing.T) {
 	}
 }
 
+func TestRunWithGoLanguageUsesLocalRepoDeclarationsForExternalDeps(t *testing.T) {
+	root := t.TempDir()
+	writeRunFile(t, filepath.Join(root, "WORKSPACE"), `
+load("@bazel_gazelle//:deps.bzl", "go_repository")
+
+go_repository(
+    name = "com_example_ext_pkg",
+    importpath = "example.com/ext/pkg",
+)
+`)
+	writeRunFile(t, filepath.Join(root, "BUILD.bazel"), "# gazelle:prefix example.com/repo\n")
+	writeRunFile(t, filepath.Join(root, "b", "b.go"), "package b\nimport _ \"example.com/ext/pkg\"\n")
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.RepoName = "repo"
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+	cfg.IndexLibraries = true
+
+	emitted := make(map[string]string)
+	_, err := Run(Options{
+		Config:    cfg,
+		Languages: []v3language.Language{golang.NewLanguage()},
+		Emit: func(c *config.Config, f *rule.File) error {
+			f.Sync()
+			emitted[f.Pkg] = string(f.Format())
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	gotB := emitted["b"]
+	if !strings.Contains(gotB, "@com_example_ext_pkg//") {
+		t.Fatalf("package b output missing external dep from repo declarations:\n%s", gotB)
+	}
+}
+
 func writeRunFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

@@ -124,7 +124,8 @@ func (goFileParser) Decode(data []byte) (any, error) {
 }
 
 type goModInfo struct {
-	ModulePath string `json:"module_path"`
+	ModulePath string   `json:"module_path"`
+	Requires   []string `json:"requires"`
 }
 
 type goModParser struct{}
@@ -139,6 +140,9 @@ func (goModParser) Parse(path string, data []byte) (any, error) {
 	}
 	if file.Module != nil {
 		model.ModulePath = file.Module.Mod.Path
+	}
+	for _, req := range file.Require {
+		model.Requires = append(model.Requires, req.Mod.Path)
 	}
 	return model, nil
 }

@@ -32,6 +32,7 @@ import (
 	gzflag "github.com/bazelbuild/bazel-gazelle/flag"
 	"github.com/bazelbuild/bazel-gazelle/internal/module"
 	"github.com/bazelbuild/bazel-gazelle/internal/version"
+	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/repo"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	proto "github.com/bazelbuild/bazel-gazelle/v3/language/proto"
@@ -124,6 +125,10 @@ type goConfig struct {
 	// in internal packages.
 	submodules []moduleRepo
 
+	// externalRepos are local-only external dependency roots known from
+	// go_repository declarations and the root go.mod file.
+	externalRepos []moduleRepo
+
 	// testMode determines how go_test targets are generated.
 	testMode testMode
 
@@ -207,6 +212,7 @@ func (gc *goConfig) clone() *goConfig {
 	gcCopy.goProtoCompilers = gc.goProtoCompilers[:len(gc.goProtoCompilers):len(gc.goProtoCompilers)]
 	gcCopy.goGrpcCompilers = gc.goGrpcCompilers[:len(gc.goGrpcCompilers):len(gc.goGrpcCompilers)]
 	gcCopy.submodules = gc.submodules[:len(gc.submodules):len(gc.submodules)]
+	gcCopy.externalRepos = gc.externalRepos[:len(gc.externalRepos):len(gc.externalRepos)]
 	gcCopy.goSearch = gc.goSearch[:len(gc.goSearch):len(gc.goSearch)]
 	return &gcCopy
 }
@@ -539,10 +545,11 @@ Update io_bazel_rules_go to a newer version in your WORKSPACE file.`
 			}
 		}
 		repoNamingConvention := map[string]namingConvention{}
+		var externalRepos []moduleRepo
 		for _, repo := range c.Repos {
 			if repo.Kind() == "go_repository" {
 				var name string
-				if apparentName := c.ModuleToApparentName(repo.AttrString("module_name")); apparentName != "" {
+				if apparentName := configModuleToApparentName(c, repo.AttrString("module_name")); apparentName != "" {
 					name = apparentName
 				} else {
 					name = repo.Name()
@@ -559,9 +566,25 @@ Update io_bazel_rules_go to a newer version in your WORKSPACE file.`
 				} else {
 					repoNamingConvention[name] = nc
 				}
+				if importPath := repo.AttrString("importpath"); importPath != "" {
+					externalRepos = append(externalRepos, moduleRepo{
+						repoName:   name,
+						modulePath: importPath,
+					})
+				}
+			}
+		}
+		if result, err := activeRepo.GetModel("go.mod", "go/modfile"); err == nil {
+			info := result.Model.(goModInfo)
+			for _, modPath := range info.Requires {
+				externalRepos = append(externalRepos, moduleRepo{
+					repoName:   label.ImportPathToBazelRepoName(modPath),
+					modulePath: modPath,
+				})
 			}
 		}
 		gc.repoNamingConvention = repoNamingConvention
+		gc.externalRepos = externalRepos
 	}
 
 	if !gc.moduleMode {
@@ -721,6 +744,13 @@ Update io_bazel_rules_go to a newer version in your WORKSPACE file.`
 	if gc.goNamingConvention == unknownNamingConvention {
 		gc.goNamingConvention = detectNamingConvention(c, f)
 	}
+}
+
+func configModuleToApparentName(c *config.Config, moduleName string) string {
+	if c.ModuleToApparentName == nil {
+		return ""
+	}
+	return c.ModuleToApparentName(moduleName)
 }
 
 // checkPrefix checks that a string may be used as a prefix. We forbid local

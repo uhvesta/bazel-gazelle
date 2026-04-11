@@ -3,7 +3,6 @@ package language
 import (
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/repo"
 	"github.com/bazelbuild/bazel-gazelle/resolve"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
@@ -87,7 +86,6 @@ type ResolveArgs struct {
 	Config  *config.Config
 	Repo    *vfs.Snapshot
 	Index   *resolve.RuleIndex
-	Remote  *repo.RemoteCache
 	Rule    *rule.Rule
 	Imports interface{}
 	From    label.Label

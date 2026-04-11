@@ -6,10 +6,12 @@ import (
 	"flag"
 	"fmt"
 	"log"
+	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/label"
@@ -27,9 +29,15 @@ type Options struct {
 	Languages   []v3language.Language
 	Configurers []config.Configurer
 	Prepared    bool
+	Timings     bool
 	Cache       *vfs.Cache
 	Emit        func(*config.Config, *rule.File) error
 	Repos       []repo.Repo
+}
+
+type phaseTiming struct {
+	name     string
+	duration time.Duration
 }
 
 type visitRecord struct {
@@ -51,6 +59,24 @@ var genericLoads = []rule.LoadInfo{
 }
 
 func Run(opts Options) (*vfs.Cache, error) {
+	startTotal := time.Now()
+	var timings []phaseTiming
+	recordPhase := func(name string, start time.Time) {
+		if !opts.Timings {
+			return
+		}
+		timings = append(timings, phaseTiming{name: name, duration: time.Since(start)})
+	}
+	defer func() {
+		if !opts.Timings {
+			return
+		}
+		timings = append(timings, phaseTiming{name: "total", duration: time.Since(startTotal)})
+		for _, phase := range timings {
+			log.Printf("timing %-16s %s", phase.name, phase.duration)
+		}
+	}()
+
 	if opts.Config == nil {
 		return nil, fmt.Errorf("nil config")
 	}
@@ -65,16 +91,24 @@ func Run(opts Options) (*vfs.Cache, error) {
 		configurers = append(configurers, lang)
 	}
 	if !opts.Prepared {
+		phaseStart := time.Now()
 		if err := initConfigurers(opts.Config, configurers); err != nil {
 			return nil, err
 		}
+		recordPhase("init_config", phaseStart)
+	}
+	if err := loadKnownRepositories(opts.Config); err != nil {
+		return nil, err
 	}
 
+	phaseStart := time.Now()
 	registry := vfs.NewRegistry()
 	if err := v3language.RegisterParsers(registry, opts.Languages); err != nil {
 		return nil, err
 	}
+	recordPhase("register_parsers", phaseStart)
 
+	phaseStart = time.Now()
 	buildRepo, err := vfs.Build(opts.Config.RepoRoot, vfs.BuildOptions{
 		Cache:    opts.Cache,
 		Registry: registry,
@@ -82,11 +116,19 @@ func Run(opts Options) (*vfs.Cache, error) {
 	if err != nil {
 		return nil, err
 	}
+	recordPhase("build_vfs", phaseStart)
+
+	phaseStart = time.Now()
 	if err := primeParsers(buildRepo); err != nil {
 		return nil, err
 	}
-	repoSnapshot := buildRepo.Freeze()
+	recordPhase("prime_parsers", phaseStart)
 
+	phaseStart = time.Now()
+	repoSnapshot := buildRepo.Freeze()
+	recordPhase("freeze_vfs", phaseStart)
+
+	phaseStart = time.Now()
 	kinds := make(map[string]rule.KindInfo)
 	loads := append([]rule.LoadInfo(nil), genericLoads...)
 	mrslv := newMetaResolver(repoSnapshot)
@@ -101,8 +143,10 @@ func Run(opts Options) (*vfs.Cache, error) {
 		exts = append(exts, adapter)
 	}
 	ruleIndex := resolve.NewRuleIndex(mrslv.Resolver, exts...)
+	recordPhase("prepare_run", phaseStart)
 
 	var visits []visitRecord
+	phaseStart = time.Now()
 	err = v3walk.Walk(repoSnapshot, opts.Config, configurers, func(args v3walk.FuncArgs) error {
 		active := v3language.Filter(args.Config, opts.Languages)
 		mrslv.AliasedKinds(args.Rel, args.Config.AliasMap)
@@ -214,18 +258,15 @@ func Run(opts Options) (*vfs.Cache, error) {
 	if err != nil {
 		return nil, err
 	}
+	recordPhase("walk_generate", phaseStart)
 
 	if opts.Config.IndexLibraries {
+		phaseStart = time.Now()
 		ruleIndex.Finish()
+		recordPhase("finish_index", phaseStart)
 	}
 
-	rc, cleanup := repo.NewRemoteCache(opts.Repos)
-	defer func() {
-		if cerr := cleanup(); cerr != nil {
-			log.Printf("closing remote cache: %v", cerr)
-		}
-	}()
-
+	phaseStart = time.Now()
 	for _, v := range visits {
 		var wg sync.WaitGroup
 		for i, r := range v.rules {
@@ -234,14 +275,16 @@ func Run(opts Options) (*vfs.Cache, error) {
 				defer wg.Done()
 				from := label.New(opts.Config.RepoName, v.pkgRel, r.Name())
 				if rslv := mrslv.Resolver(r, v.pkgRel); rslv != nil {
-					rslv.Resolve(v.config, ruleIndex, rc, r, v.imports[i], from)
+					rslv.Resolve(v.config, ruleIndex, nil, r, v.imports[i], from)
 				}
 			}(i, r)
 		}
 		wg.Wait()
 		merger.MergeFile(v.file, v.empty, v.rules, merger.PostResolve, unionKindInfoMaps(kinds, v.mappedKindInfo), v.config.AliasMap)
 	}
+	recordPhase("resolve", phaseStart)
 
+	phaseStart = time.Now()
 	for _, v := range visits {
 		merger.FixLoads(v.file, applyKindMappings(v.mappedKinds, loads))
 		if opts.Emit != nil {
@@ -250,6 +293,7 @@ func Run(opts Options) (*vfs.Cache, error) {
 			}
 		}
 	}
+	recordPhase("emit", phaseStart)
 
 	return repoSnapshot.Cache(), nil
 }
@@ -257,6 +301,34 @@ func Run(opts Options) (*vfs.Cache, error) {
 func vfsDigest(data []byte) string {
 	sum := sha256.Sum256(data)
 	return hex.EncodeToString(sum[:])
+}
+
+func loadKnownRepositories(c *config.Config) error {
+	repoConfigPath := findRepoConfigPath(c.RepoRoot)
+	repoConfigFile, err := rule.LoadWorkspaceFile(repoConfigPath, "")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	repos, _, err := repo.ListRepositories(repoConfigFile)
+	if err != nil {
+		return err
+	}
+	c.Repos = repos
+	return nil
+}
+
+func findRepoConfigPath(repoRoot string) string {
+	candidates := []string{"WORKSPACE.bazel", "WORKSPACE", "REPO.bazel"}
+	for _, name := range candidates {
+		path := filepath.Join(repoRoot, name)
+		if info, err := os.Stat(path); err == nil && !info.IsDir() {
+			return path
+		}
+	}
+	return filepath.Join(repoRoot, "WORKSPACE")
 }
 
 func initConfigurers(c *config.Config, cexts []config.Configurer) error {
@@ -457,7 +529,6 @@ func (a languageAdapter) Resolve(c *config.Config, ix *resolve.RuleIndex, rc *re
 		Config:  c,
 		Repo:    a.repo,
 		Index:   ix,
-		Remote:  rc,
 		Rule:    r,
 		Imports: imports,
 		From:    from,

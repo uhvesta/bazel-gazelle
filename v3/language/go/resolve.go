@@ -26,7 +26,6 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/bazel-gazelle/pathtools"
-	"github.com/bazelbuild/bazel-gazelle/repo"
 	"github.com/bazelbuild/bazel-gazelle/resolve"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
@@ -71,15 +70,15 @@ func (gl *goLang) Resolve(args v3language.ResolveArgs) {
 	}
 	imports := args.Imports.(rule.PlatformStrings)
 	args.Rule.DelAttr("deps")
-	var resolve func(*config.Config, *resolve.RuleIndex, *repo.RemoteCache, string, label.Label) (label.Label, error)
+	var resolveFn func(*config.Config, *resolve.RuleIndex, string, label.Label) (label.Label, error)
 	switch args.Rule.Kind() {
 	case "go_proto_library":
-		resolve = resolveProto
+		resolveFn = resolveProto
 	default:
-		resolve = ResolveGo
+		resolveFn = ResolveGo
 	}
 	deps, errs := imports.Map(func(imp string) (string, error) {
-		l, err := resolve(args.Config, args.Index, args.Remote, imp, args.From)
+		l, err := resolveFn(args.Config, args.Index, imp, args.From)
 		if err == errSkipImport {
 			return "", nil
 		} else if err != nil {
@@ -116,13 +115,13 @@ var (
 	errNotFound   = errors.New("rule not found")
 )
 
-// ResolveGo resolves a Go import path to a Bazel label, possibly using the
-// given rule index and remote cache. Some special cases may be applied to
+// ResolveGo resolves a Go import path to a Bazel label using only local data:
+// the rule index, repo declarations, and local module metadata. Some special cases may be applied to
 // known proto import paths, depending on the current proto mode.
 //
 // This may be used directly by other language extensions related to Go
 // (gomock). Gazelle calls Language.Resolve instead.
-func ResolveGo(c *config.Config, ix *resolve.RuleIndex, rc *repo.RemoteCache, imp string, from label.Label) (label.Label, error) {
+func ResolveGo(c *config.Config, ix *resolve.RuleIndex, imp string, from label.Label) (label.Label, error) {
 	gc := getGoConfig(c)
 	if build.IsLocalImport(imp) {
 		cleanRel := path.Clean(path.Join(from.Pkg, imp))
@@ -173,15 +172,7 @@ func ResolveGo(c *config.Config, ix *resolve.RuleIndex, rc *repo.RemoteCache, im
 	if gc.depMode == vendorMode {
 		return resolveVendored(gc, imp)
 	}
-	var resolveFn func(string) (string, string, error)
-	if gc.depMode == staticMode {
-		resolveFn = rc.RootStatic
-	} else if gc.moduleMode || pathWithoutSemver(imp) != "" {
-		resolveFn = rc.Mod
-	} else {
-		resolveFn = rc.Root
-	}
-	return resolveToExternalLabel(c, resolveFn, imp)
+	return resolveToExternalLabel(c, imp)
 }
 
 // IsStandard returns whether a package is in the standard library.
@@ -261,13 +252,12 @@ func resolveWithIndexGo(c *config.Config, ix *resolve.RuleIndex, imp string, fro
 	return bestMatch.Label, nil
 }
 
-func resolveToExternalLabel(c *config.Config, resolveFn func(string) (string, string, error), imp string) (label.Label, error) {
-	prefix, repo, err := resolveFn(imp)
-	if err != nil {
-		return label.NoLabel, err
-	} else if prefix == "" && repo == "" {
+func resolveToExternalLabel(c *config.Config, imp string) (label.Label, error) {
+	resolved, ok := findExternalRepo(getGoConfig(c), imp)
+	if !ok {
 		return label.NoLabel, errSkipImport
 	}
+	prefix, repo := resolved.modulePath, resolved.repoName
 
 	var pkg string
 	if pathtools.HasPrefix(imp, prefix) {
@@ -305,12 +295,36 @@ func resolveToExternalLabel(c *config.Config, resolveFn func(string) (string, st
 	return label.New(repo, pkg, name), nil
 }
 
+func findExternalRepo(gc *goConfig, imp string) (moduleRepo, bool) {
+	var best moduleRepo
+	var found bool
+	for _, candidate := range gc.externalRepos {
+		if candidate.modulePath == "" {
+			continue
+		}
+		if pathtools.HasPrefix(imp, candidate.modulePath) {
+			if !found || len(candidate.modulePath) > len(best.modulePath) {
+				best = candidate
+				found = true
+			}
+			continue
+		}
+		if impWithoutSemver := pathWithoutSemver(imp); impWithoutSemver != "" && pathtools.HasPrefix(impWithoutSemver, candidate.modulePath) {
+			if !found || len(candidate.modulePath) > len(best.modulePath) {
+				best = candidate
+				found = true
+			}
+		}
+	}
+	return best, found
+}
+
 func resolveVendored(gc *goConfig, imp string) (label.Label, error) {
 	name := libNameByConvention(gc.goNamingConvention, imp, "")
 	return label.New("", path.Join("vendor", imp), name), nil
 }
 
-func resolveProto(c *config.Config, ix *resolve.RuleIndex, rc *repo.RemoteCache, imp string, from label.Label) (label.Label, error) {
+func resolveProto(c *config.Config, ix *resolve.RuleIndex, imp string, from label.Label) (label.Label, error) {
 	if wellKnownProtos[imp] {
 		return label.NoLabel, errSkipImport
 	}
