@@ -14,8 +14,8 @@ go_library(
         "//rule",
         "//v3/internal/vfs",
         "//v3/language",
-        "@com_github_bmatcuk_doublestar_v4//:doublestar",
         "@com_github_bazelbuild_buildtools//build",
+        "@com_github_bmatcuk_doublestar_v4//:doublestar",
     ],
 )
 
@@ -27,6 +27,7 @@ go_test(
     deps = [
         "//config",
         "//rule",
+        "//v3/internal/vfs",
     ],
 )
 
@@ -39,5 +40,11 @@ filegroup(
         "walk.go",
         "walk_test.go",
     ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":walk",
     visibility = ["//visibility:public"],
 )

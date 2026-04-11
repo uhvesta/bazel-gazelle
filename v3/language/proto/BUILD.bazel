@@ -19,11 +19,8 @@ go_library(
     deps = [
         "//config",
         "//label",
-        "//language",
-        "//language/proto",
         "//merger",
         "//pathtools",
-        "//repo",
         "//resolve",
         "//rule",
         "//v3/internal/vfs",
@@ -56,5 +53,11 @@ filegroup(
         "proto_test.go",
         "resolve.go",
     ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":proto",
     visibility = ["//visibility:public"],
 )

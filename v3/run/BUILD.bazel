@@ -25,7 +25,6 @@ go_test(
     embed = [":run"],
     deps = [
         "//config",
-        "//label",
         "//resolve",
         "//rule",
         "//v3/internal/vfs",
@@ -42,5 +41,11 @@ filegroup(
         "run.go",
         "run_test.go",
     ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":run",
     visibility = ["//visibility:public"],
 )

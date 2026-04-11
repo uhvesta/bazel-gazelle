@@ -1,5 +1,5 @@
-load("//v3:def.bzl", "DEFAULT_LANGUAGES", "gazelle_v3_binary")
 load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("//v3:def.bzl", "DEFAULT_LANGUAGES", "gazelle_v3_binary")
 
 gazelle_v3_binary(
     name = "gazelle",

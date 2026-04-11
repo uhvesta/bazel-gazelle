@@ -28,7 +28,6 @@ go_library(
         "//internal/module",
         "//internal/version",
         "//label",
-        "//language",
         "//pathtools",
         "//repo",
         "//resolve",
@@ -36,11 +35,9 @@ go_library(
         "//v3/internal/vfs",
         "//v3/language",
         "//v3/language/proto",
-        "//v3/walk",
         "@com_github_bazelbuild_buildtools//build",
         "@org_golang_x_mod//modfile",
         "@org_golang_x_mod//module",
-        "@org_golang_x_sync//errgroup",
     ],
 )
 
@@ -64,6 +61,7 @@ filegroup(
         "fileinfo.go",
         "fix.go",
         "generate.go",
+        "go_test.go",
         "kinds.go",
         "lang.go",
         "package.go",
@@ -73,7 +71,12 @@ filegroup(
         "stdlib_links.go",
         "utils.go",
         "vfs.go",
-        "go_test.go",
     ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":go",
     visibility = ["//visibility:public"],
 )
