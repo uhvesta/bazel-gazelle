@@ -5,6 +5,7 @@ go_library(
     srcs = [
         "cache.go",
         "repo.go",
+        "state.go",
     ],
     importpath = "github.com/bazelbuild/bazel-gazelle/v3/internal/vfs",
     visibility = ["//visibility:public"],
@@ -29,6 +30,7 @@ filegroup(
         "cache_test.go",
         "repo.go",
         "repo_test.go",
+        "state.go",
     ],
     visibility = ["//visibility:public"],
 )

@@ -18,6 +18,7 @@ go_library(
         "//config",
         "//resolve",
         "//rule",
+        "//v3/internal/vfs",
         "//v3/language",
         "//v3/language/go",
         "//v3/language/proto",

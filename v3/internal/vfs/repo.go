@@ -89,6 +89,7 @@ type BuildSnapshot struct {
 	registry *Registry
 	files    map[string]File
 	dirs     map[string][]string
+	changed  bool
 }
 
 // Snapshot is the frozen read-only view of the repo and parsed-model cache.
@@ -275,6 +276,13 @@ func (s *BuildSnapshot) Freeze() *Snapshot {
 
 func (s *BuildSnapshot) Builder() *CacheBuilder {
 	return s.builder
+}
+
+func (s *BuildSnapshot) Changed() bool {
+	if s == nil {
+		return false
+	}
+	return s.changed
 }
 
 func (s *BuildSnapshot) Files() []File {

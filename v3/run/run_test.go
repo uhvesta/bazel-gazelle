@@ -137,7 +137,7 @@ func TestRunGeneratesIndexesAndResolvesWholeRepo(t *testing.T) {
 	cfg.IndexLibraries = true
 
 	emitted := make(map[string]string)
-	cache, err := Run(Options{
+	result, err := Run(Options{
 		Config:    cfg,
 		Languages: []v3language.Language{&fakeLang{}},
 		Emit: func(c *config.Config, f *rule.File) error {
@@ -149,7 +149,7 @@ func TestRunGeneratesIndexesAndResolvesWholeRepo(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if cache == nil {
+	if result == nil || result.Cache == nil || result.Snapshot == nil {
 		t.Fatal("expected frozen cache")
 	}
 
@@ -244,6 +244,47 @@ go_repository(
 	gotB := emitted["b"]
 	if !strings.Contains(gotB, "@com_example_ext_pkg//") {
 		t.Fatalf("package b output missing external dep from repo declarations:\n%s", gotB)
+	}
+}
+
+func TestRunSkipsAlgorithmWhenPatchedSnapshotIsUnchanged(t *testing.T) {
+	root := t.TempDir()
+	writeRunFile(t, filepath.Join(root, "BUILD.bazel"), "# gazelle:prefix example.com/repo\n")
+	writeRunFile(t, filepath.Join(root, "a", "a.go"), "package a\n")
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.RepoName = "repo"
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+	cfg.IndexLibraries = true
+
+	first, err := Run(Options{
+		Config:    cfg,
+		Languages: []v3language.Language{golang.NewLanguage()},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	emits := 0
+	second, err := Run(Options{
+		Config:    cfg,
+		Languages: []v3language.Language{golang.NewLanguage()},
+		Snapshot:  first.Snapshot,
+		Changes:   []vfs.Change{{Path: "a/a.go", Kind: vfs.ChangeModify}},
+		Emit: func(c *config.Config, f *rule.File) error {
+			emits++
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if second.Snapshot != first.Snapshot {
+		t.Fatal("expected unchanged rerun to reuse prior snapshot")
+	}
+	if emits != 0 {
+		t.Fatalf("expected no emit on unchanged rerun, got %d", emits)
 	}
 }
 

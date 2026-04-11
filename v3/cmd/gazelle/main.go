@@ -1,15 +1,18 @@
 package main
 
 import (
+	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
 	"log"
 	"os"
+	"path/filepath"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/resolve"
 	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
 	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
 	"github.com/bazelbuild/bazel-gazelle/v3/run"
 	v3walk "github.com/bazelbuild/bazel-gazelle/v3/walk"
@@ -19,6 +22,7 @@ type command int
 
 const (
 	runCmd command = iota
+	rerunCmd
 	helpCmd
 )
 
@@ -65,8 +69,11 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 	if err := fs.Parse(cmdArgs); err != nil {
 		return err
 	}
-	if fs.NArg() > 0 {
+	if cmd == runCmd && fs.NArg() > 0 {
 		return fmt.Errorf("path-scoped runs are not supported in v3 yet: %v", fs.Args())
+	}
+	if cmd == rerunCmd && fs.NArg() == 0 {
+		return fmt.Errorf("rerun requires at least one changed path")
 	}
 	for _, cext := range configurers {
 		if err := cext.CheckFlags(fs, cfg); err != nil {
@@ -74,18 +81,44 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 		}
 	}
 
-	_, err = run.Run(run.Options{
+	var snapshot *vfs.Snapshot
+	if cmd == rerunCmd {
+		registry, err := run.Registry(langs)
+		if err != nil {
+			return err
+		}
+		snapshot, err = loadSnapshot(statePath(cfg.RepoRoot), registry)
+		if err != nil {
+			if !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			log.Printf("no prior v3 state found; falling back to full run")
+		}
+	}
+
+	result, err := run.Run(run.Options{
 		Config:      cfg,
 		Languages:   langs,
 		Configurers: configurers,
 		Prepared:    true,
 		Timings:     timings,
+		Snapshot:    snapshot,
+		Changes:     changesFromArgs(fs.Args()),
 		Emit: func(c *config.Config, f *rule.File) error {
 			f.Sync()
-			return os.WriteFile(f.Path, f.Format(), 0o666)
+			formatted := f.Format()
+			if existing, err := os.ReadFile(f.Path); err == nil && string(existing) == string(formatted) {
+				return nil
+			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
+				return err
+			}
+			return os.WriteFile(f.Path, formatted, 0o666)
 		},
 	})
-	return err
+	if err != nil {
+		return err
+	}
+	return saveSnapshot(statePath(cfg.RepoRoot), result.Snapshot)
 }
 
 func makeConfigurers(langs []v3language.Language) []config.Configurer {
@@ -107,13 +140,16 @@ Gazelle v3 runs the snapshot-backed VFS pipeline with the configured v3 language
 
 Commands:
   run     build the VFS snapshot, then run the whole-repo v3 pipeline
+  rerun   load saved v3 state, patch changed paths, then run the whole-repo v3 pipeline
   help    show this message
 
 Notes:
   v3 currently runs on the whole repository.
   Bare invocation is the same as 'run'.
   Use -timings to print per-phase timing information.
-  Path-scoped runs, rerun-with-changes, and watch mode are not wired into this CLI yet.
+  run saves VFS state in the OS cache dir for later rerun commands.
+  rerun expects changed/new/deleted repo-relative paths.
+  Watch mode is not wired into this CLI yet.
 `)
 	return flag.ErrHelp
 }
@@ -125,6 +161,8 @@ func parseCommand(args []string) (command, []string, error) {
 	switch args[0] {
 	case "run":
 		return runCmd, args[1:], nil
+	case "rerun":
+		return rerunCmd, args[1:], nil
 	case "help", "-h", "-help", "--help":
 		return helpCmd, args[1:], nil
 	default:
@@ -136,9 +174,55 @@ func (cmd command) String() string {
 	switch cmd {
 	case runCmd:
 		return "run"
+	case rerunCmd:
+		return "rerun"
 	case helpCmd:
 		return "help"
 	default:
 		return "run"
 	}
+}
+
+func statePath(repoRoot string) string {
+	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return filepath.Join(repoRoot, ".gazelle-v3-state.json")
+	}
+	sum := sha256.Sum256([]byte(repoRoot))
+	return filepath.Join(cacheDir, "bazel-gazelle", "v3", fmt.Sprintf("%x.json", sum[:8]))
+}
+
+func saveSnapshot(path string, snapshot *vfs.Snapshot) error {
+	if snapshot == nil {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+		return err
+	}
+	f, err := os.Create(path)
+	if err != nil {
+		return err
+	}
+	defer f.Close()
+	return snapshot.Save(f)
+}
+
+func loadSnapshot(path string, registry *vfs.Registry) (*vfs.Snapshot, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	return vfs.LoadSnapshot(f, registry)
+}
+
+func changesFromArgs(args []string) []vfs.Change {
+	changes := make([]vfs.Change, 0, len(args))
+	for _, arg := range args {
+		changes = append(changes, vfs.Change{
+			Path: arg,
+			Kind: vfs.ChangeModify,
+		})
+	}
+	return changes
 }

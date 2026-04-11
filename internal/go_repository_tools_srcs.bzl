@@ -152,6 +152,7 @@ GO_REPOSITORY_TOOLS_SRCS = [
     Label("//v3/internal/vfs:BUILD.bazel"),
     Label("//v3/internal/vfs:cache.go"),
     Label("//v3/internal/vfs:repo.go"),
+    Label("//v3/internal/vfs:state.go"),
     Label("//v3/language:BUILD.bazel"),
     Label("//v3/language:base.go"),
     Label("//v3/language/go:BUILD.bazel"),

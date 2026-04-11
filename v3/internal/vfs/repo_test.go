@@ -1,6 +1,7 @@
 package vfs
 
 import (
+	"bytes"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -213,6 +214,131 @@ func TestFreezeConsumesBuildSnapshotState(t *testing.T) {
 	}
 	if buildSnapshot.dirs != nil {
 		t.Fatal("expected dir map to be cleared after freeze")
+	}
+}
+
+func TestSnapshotRoundTripPersistence(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "pkg", "foo.txt"), "hello")
+
+	registry := NewRegistry()
+	parser := &countingParser{key: "test/model", version: "v1"}
+	if err := registry.Register(parser, MatchExtension(".txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	buildSnapshot, err := Build(root, BuildOptions{Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildSnapshot.GetModel("pkg/foo.txt", parser.Key()); err != nil {
+		t.Fatal(err)
+	}
+	frozen := buildSnapshot.Freeze()
+
+	var buf bytes.Buffer
+	if err := frozen.Save(&buf); err != nil {
+		t.Fatal(err)
+	}
+	loaded, err := LoadSnapshot(&buf, registry)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := loaded.GetModel("pkg/foo.txt", parser.Key())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.CacheHit {
+		t.Fatal("loaded snapshot should serve cached model")
+	}
+}
+
+func TestPatchUpdatesOnlyChangedPaths(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "pkg", "foo.txt"), "old")
+	writeTestFile(t, filepath.Join(root, "pkg", "bar.txt"), "same")
+
+	registry := NewRegistry()
+	parser := &countingParser{key: "test/model", version: "v1"}
+	if err := registry.Register(parser, MatchExtension(".txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	buildSnapshot, err := Build(root, BuildOptions{Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildSnapshot.GetModel("pkg/foo.txt", parser.Key()); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildSnapshot.GetModel("pkg/bar.txt", parser.Key()); err != nil {
+		t.Fatal(err)
+	}
+	frozen := buildSnapshot.Freeze()
+
+	writeTestFile(t, filepath.Join(root, "pkg", "foo.txt"), "new")
+	patched, err := Patch(root, frozen, BuildOptions{Registry: registry}, []Change{{Path: "pkg/foo.txt", Kind: ChangeModify}})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	foo, err := patched.GetModel("pkg/foo.txt", parser.Key())
+	if err != nil {
+		t.Fatal(err)
+	}
+	bar, err := patched.GetModel("pkg/bar.txt", parser.Key())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if parser.parses != 3 {
+		t.Fatalf("parser called %d times, want 3", parser.parses)
+	}
+	if foo.CacheHit {
+		t.Fatal("changed file should not hit parsed-model cache")
+	}
+	if !bar.CacheHit {
+		t.Fatal("unchanged file should reuse parsed-model cache")
+	}
+}
+
+func TestPatchHandlesDeletion(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "pkg", "foo.txt"), "hello")
+
+	buildSnapshot, err := Build(root, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frozen := buildSnapshot.Freeze()
+
+	if err := os.Remove(filepath.Join(root, "pkg", "foo.txt")); err != nil {
+		t.Fatal(err)
+	}
+	patched, err := Patch(root, frozen, BuildOptions{}, []Change{{Path: "pkg/foo.txt", Kind: ChangeDelete}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := patched.ReadFile("pkg/foo.txt"); !os.IsNotExist(err) {
+		t.Fatalf("ReadFile error = %v, want not exist", err)
+	}
+}
+
+func TestPatchSkipsUnchangedFileContent(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "pkg", "foo.txt"), "same")
+
+	buildSnapshot, err := Build(root, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frozen := buildSnapshot.Freeze()
+
+	patched, err := Patch(root, frozen, BuildOptions{}, []Change{{Path: "pkg/foo.txt", Kind: ChangeModify}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patched.Changed() {
+		t.Fatal("expected unchanged file patch to be skipped")
 	}
 }
 

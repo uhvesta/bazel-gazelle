@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"strings"
 )
 
 // Parser describes how a file should be parsed into a serializable model.
@@ -173,6 +174,30 @@ func (b *CacheBuilder) Check(path string, data []byte, parser Parser) (LookupRes
 func (b *CacheBuilder) StoreEntry(entry Entry) {
 	key := cacheKey{Path: entry.Path, ParserKey: entry.ParserKey}
 	b.entries[key] = cloneEntry(entry)
+}
+
+func (b *CacheBuilder) DeletePath(path string) {
+	if b == nil {
+		return
+	}
+	path = cleanRepoPath(path)
+	for key := range b.entries {
+		if key.Path == path {
+			delete(b.entries, key)
+		}
+	}
+}
+
+func (b *CacheBuilder) DeleteSubtree(prefix string) {
+	if b == nil {
+		return
+	}
+	prefix = cleanRepoPath(prefix)
+	for key := range b.entries {
+		if key.Path == prefix || strings.HasPrefix(key.Path, prefix+"/") {
+			delete(b.entries, key)
+		}
+	}
 }
 
 func (b *CacheBuilder) Freeze() *Cache {

@@ -31,6 +31,8 @@ type Options struct {
 	Prepared    bool
 	Timings     bool
 	Cache       *vfs.Cache
+	Snapshot    *vfs.Snapshot
+	Changes     []vfs.Change
 	Emit        func(*config.Config, *rule.File) error
 	Repos       []repo.Repo
 }
@@ -38,6 +40,11 @@ type Options struct {
 type phaseTiming struct {
 	name     string
 	duration time.Duration
+}
+
+type Result struct {
+	Snapshot *vfs.Snapshot
+	Cache    *vfs.Cache
 }
 
 type visitRecord struct {
@@ -58,7 +65,7 @@ var genericLoads = []rule.LoadInfo{
 	},
 }
 
-func Run(opts Options) (*vfs.Cache, error) {
+func Run(opts Options) (*Result, error) {
 	startTotal := time.Now()
 	var timings []phaseTiming
 	recordPhase := func(name string, start time.Time) {
@@ -102,21 +109,40 @@ func Run(opts Options) (*vfs.Cache, error) {
 	}
 
 	phaseStart := time.Now()
-	registry := vfs.NewRegistry()
-	if err := v3language.RegisterParsers(registry, opts.Languages); err != nil {
+	registry, err := Registry(opts.Languages)
+	if err != nil {
 		return nil, err
 	}
 	recordPhase("register_parsers", phaseStart)
 
 	phaseStart = time.Now()
-	buildRepo, err := vfs.Build(opts.Config.RepoRoot, vfs.BuildOptions{
-		Cache:    opts.Cache,
-		Registry: registry,
-	})
+	var buildRepo *vfs.BuildSnapshot
+	if opts.Snapshot != nil {
+		buildRepo, err = vfs.Patch(opts.Config.RepoRoot, opts.Snapshot, vfs.BuildOptions{
+			Registry: registry,
+		}, opts.Changes)
+	} else {
+		buildRepo, err = vfs.Build(opts.Config.RepoRoot, vfs.BuildOptions{
+			Cache:    opts.Cache,
+			Registry: registry,
+		})
+	}
 	if err != nil {
 		return nil, err
 	}
 	recordPhase("build_vfs", phaseStart)
+	if opts.Snapshot != nil && !buildRepo.Changed() {
+		recordPhase("prime_parsers", time.Now())
+		recordPhase("freeze_vfs", time.Now())
+		recordPhase("prepare_run", time.Now())
+		recordPhase("walk_generate", time.Now())
+		recordPhase("resolve", time.Now())
+		recordPhase("emit", time.Now())
+		return &Result{
+			Snapshot: opts.Snapshot,
+			Cache:    opts.Snapshot.Cache(),
+		}, nil
+	}
 
 	phaseStart = time.Now()
 	if err := primeParsers(buildRepo); err != nil {
@@ -295,7 +321,18 @@ func Run(opts Options) (*vfs.Cache, error) {
 	}
 	recordPhase("emit", phaseStart)
 
-	return repoSnapshot.Cache(), nil
+	return &Result{
+		Snapshot: repoSnapshot,
+		Cache:    repoSnapshot.Cache(),
+	}, nil
+}
+
+func Registry(langs []v3language.Language) (*vfs.Registry, error) {
+	registry := vfs.NewRegistry()
+	if err := v3language.RegisterParsers(registry, langs); err != nil {
+		return nil, err
+	}
+	return registry, nil
 }
 
 func vfsDigest(data []byte) string {
