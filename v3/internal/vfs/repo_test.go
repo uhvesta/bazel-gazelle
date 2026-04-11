@@ -192,6 +192,30 @@ func TestFrozenSnapshotServesReadOnlyModels(t *testing.T) {
 	}
 }
 
+func TestFreezeConsumesBuildSnapshotState(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "pkg", "foo.txt"), "same")
+
+	buildSnapshot, err := Build(root, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	frozen := buildSnapshot.Freeze()
+	if _, err := frozen.ReadFile("pkg/foo.txt"); err != nil {
+		t.Fatal(err)
+	}
+	if buildSnapshot.builder != nil {
+		t.Fatal("expected builder to be cleared after freeze")
+	}
+	if buildSnapshot.files != nil {
+		t.Fatal("expected file map to be cleared after freeze")
+	}
+	if buildSnapshot.dirs != nil {
+		t.Fatal("expected dir map to be cleared after freeze")
+	}
+}
+
 func writeTestFile(t *testing.T, path, content string) {
 	t.Helper()
 	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {

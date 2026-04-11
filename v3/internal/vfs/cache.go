@@ -54,7 +54,8 @@ type Persisted struct {
 // The intended ownership model is:
 //  1. worker goroutines parse and send results to a coordinator
 //  2. the coordinator alone calls Parse and mutates the builder
-//  3. Freeze is called when the build phase ends
+//  3. Freeze is called when the build phase ends, transferring ownership of
+//     the entries into an immutable Cache
 type CacheBuilder struct {
 	entries map[cacheKey]Entry
 }
@@ -175,10 +176,11 @@ func (b *CacheBuilder) StoreEntry(entry Entry) {
 }
 
 func (b *CacheBuilder) Freeze() *Cache {
-	entries := make(map[cacheKey]Entry, len(b.entries))
-	for key, entry := range b.entries {
-		entries[key] = cloneEntry(entry)
+	if b == nil {
+		return &Cache{entries: make(map[cacheKey]Entry)}
 	}
+	entries := b.entries
+	b.entries = nil
 	return &Cache{entries: entries}
 }
 

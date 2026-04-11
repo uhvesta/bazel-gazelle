@@ -81,7 +81,8 @@ func (r *Registry) Match(path string) []Parser {
 // BuildSnapshot is the mutable build-phase view of the repo.
 //
 // A coordinator owns the snapshot and its CacheBuilder during the build phase.
-// Once parsing is complete, Freeze produces a read-only Snapshot.
+// Once parsing is complete, Freeze produces a read-only Snapshot and consumes
+// the mutable maps instead of cloning them.
 type BuildSnapshot struct {
 	Root     string
 	builder  *CacheBuilder
@@ -254,12 +255,21 @@ func readFilesIntoSnapshot(s *BuildSnapshot, jobs []fileJob) error {
 }
 
 func (s *BuildSnapshot) Freeze() *Snapshot {
+	if s == nil {
+		return &Snapshot{}
+	}
+	cache := s.builder.Freeze()
+	files := s.files
+	dirs := s.dirs
+	s.builder = nil
+	s.files = nil
+	s.dirs = nil
 	return &Snapshot{
 		Root:     s.Root,
-		cache:    s.builder.Freeze(),
+		cache:    cache,
 		registry: s.registry,
-		files:    cloneFiles(s.files),
-		dirs:     cloneDirs(s.dirs),
+		files:    files,
+		dirs:     dirs,
 	}
 }
 
@@ -449,26 +459,6 @@ func pathBase(p string) string {
 		return ""
 	}
 	return path.Base(cleanRepoPath(p))
-}
-
-func cloneFiles(files map[string]File) map[string]File {
-	out := make(map[string]File, len(files))
-	for key, file := range files {
-		out[key] = File{
-			Path:    file.Path,
-			Content: append([]byte(nil), file.Content...),
-			Hash:    file.Hash,
-		}
-	}
-	return out
-}
-
-func cloneDirs(dirs map[string][]string) map[string][]string {
-	out := make(map[string][]string, len(dirs))
-	for key, entries := range dirs {
-		out[key] = append([]string(nil), entries...)
-	}
-	return out
 }
 
 func (d *Dir) Rel() string {
