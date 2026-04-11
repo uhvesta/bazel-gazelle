@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "vfs",
-    srcs = ["cache.go"],
+    srcs = [
+        "cache.go",
+        "repo.go",
+    ],
     importpath = "github.com/bazelbuild/bazel-gazelle/v3/internal/vfs",
     visibility = ["//visibility:public"],
 )
@@ -10,7 +13,10 @@ go_library(
 go_test(
     name = "vfs_test",
     size = "small",
-    srcs = ["cache_test.go"],
+    srcs = [
+        "cache_test.go",
+        "repo_test.go",
+    ],
     embed = [":vfs"],
 )
 
@@ -21,6 +27,8 @@ filegroup(
         "BUILD.bazel",
         "cache.go",
         "cache_test.go",
+        "repo.go",
+        "repo_test.go",
     ],
     visibility = ["//visibility:public"],
 )

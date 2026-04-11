@@ -3,7 +3,10 @@ filegroup(
     testonly = True,
     srcs = [
         "BUILD.bazel",
+        "//v3/language:all_files",
         "//v3/internal:all_files",
+        "//v3/run:all_files",
+        "//v3/walk:all_files",
     ],
     visibility = ["//visibility:public"],
 )

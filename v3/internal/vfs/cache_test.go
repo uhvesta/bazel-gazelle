@@ -50,15 +50,15 @@ func splitLines(data []byte) []string {
 	return out
 }
 
-func TestCacheReusesParsedModelForSameContent(t *testing.T) {
-	cache := NewCache()
+func TestCacheBuilderReusesParsedModelForSameContent(t *testing.T) {
+	builder := NewCacheBuilder(nil)
 	parser := &countingParser{key: "test/model", version: "v1"}
 
-	first, err := cache.Lookup("foo.txt", []byte("a\nb"), parser)
+	first, err := builder.Parse("foo.txt", []byte("a\nb"), parser)
 	if err != nil {
 		t.Fatal(err)
 	}
-	second, err := cache.Lookup("foo.txt", []byte("a\nb"), parser)
+	second, err := builder.Parse("foo.txt", []byte("a\nb"), parser)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -67,10 +67,10 @@ func TestCacheReusesParsedModelForSameContent(t *testing.T) {
 		t.Fatalf("parser called %d times, want 1", parser.parses)
 	}
 	if first.CacheHit {
-		t.Fatal("first lookup should not be a cache hit")
+		t.Fatal("first parse should not be a cache hit")
 	}
 	if !second.CacheHit {
-		t.Fatal("second lookup should be a cache hit")
+		t.Fatal("second parse should be a cache hit")
 	}
 	if !reflect.DeepEqual(first.Model, second.Model) {
 		t.Fatalf("models differ (-want +got): %#v %#v", first.Model, second.Model)
@@ -80,15 +80,15 @@ func TestCacheReusesParsedModelForSameContent(t *testing.T) {
 	}
 }
 
-func TestCacheInvalidatesOnContentChange(t *testing.T) {
-	cache := NewCache()
+func TestCacheBuilderInvalidatesOnContentChange(t *testing.T) {
+	builder := NewCacheBuilder(nil)
 	parser := &countingParser{key: "test/model", version: "v1"}
 
-	_, err := cache.Lookup("foo.txt", []byte("old"), parser)
+	_, err := builder.Parse("foo.txt", []byte("old"), parser)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := cache.Lookup("foo.txt", []byte("new"), parser)
+	got, err := builder.Parse("foo.txt", []byte("new"), parser)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -101,16 +101,16 @@ func TestCacheInvalidatesOnContentChange(t *testing.T) {
 	}
 }
 
-func TestCacheInvalidatesOnParserVersionChange(t *testing.T) {
-	cache := NewCache()
+func TestCacheBuilderInvalidatesOnParserVersionChange(t *testing.T) {
+	builder := NewCacheBuilder(nil)
 	parserV1 := &countingParser{key: "test/model", version: "v1"}
 	parserV2 := &countingParser{key: "test/model", version: "v2"}
 
-	_, err := cache.Lookup("foo.txt", []byte("same"), parserV1)
+	_, err := builder.Parse("foo.txt", []byte("same"), parserV1)
 	if err != nil {
 		t.Fatal(err)
 	}
-	got, err := cache.Lookup("foo.txt", []byte("same"), parserV2)
+	got, err := builder.Parse("foo.txt", []byte("same"), parserV2)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -123,20 +123,20 @@ func TestCacheInvalidatesOnParserVersionChange(t *testing.T) {
 	}
 }
 
-func TestCacheSupportsMultipleParserKeysPerPath(t *testing.T) {
-	cache := NewCache()
+func TestCacheBuilderSupportsMultipleParserKeysPerPath(t *testing.T) {
+	builder := NewCacheBuilder(nil)
 	parserA := &countingParser{key: "test/a", version: "v1"}
 	parserB := &countingParser{key: "test/b", version: "v1"}
 
-	_, err := cache.Lookup("foo.txt", []byte("same"), parserA)
+	_, err := builder.Parse("foo.txt", []byte("same"), parserA)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = cache.Lookup("foo.txt", []byte("same"), parserB)
+	_, err = builder.Parse("foo.txt", []byte("same"), parserB)
 	if err != nil {
 		t.Fatal(err)
 	}
-	_, err = cache.Lookup("foo.txt", []byte("same"), parserA)
+	_, err = builder.Parse("foo.txt", []byte("same"), parserA)
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -149,17 +149,47 @@ func TestCacheSupportsMultipleParserKeysPerPath(t *testing.T) {
 	}
 }
 
-func TestCacheRoundTripPersistence(t *testing.T) {
-	cache := NewCache()
+func TestFrozenCacheReturnsOnlyExistingModels(t *testing.T) {
+	builder := NewCacheBuilder(nil)
 	parser := &countingParser{key: "test/model", version: "v1"}
 
-	first, err := cache.Lookup("foo.txt", []byte("persist"), parser)
+	first, err := builder.Parse("foo.txt", []byte("persist"), parser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cache := builder.Freeze()
+
+	second, hit, err := cache.Get("foo.txt", []byte("persist"), parser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !hit {
+		t.Fatal("frozen cache should hit for parsed entry")
+	}
+	if !reflect.DeepEqual(first.Model, second.Model) {
+		t.Fatalf("models differ after freeze (-want +got): %#v %#v", first.Model, second.Model)
+	}
+
+	_, hit, err = cache.Get("foo.txt", []byte("other"), parser)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if hit {
+		t.Fatal("frozen cache should miss for changed content")
+	}
+}
+
+func TestCacheRoundTripPersistence(t *testing.T) {
+	builder := NewCacheBuilder(nil)
+	parser := &countingParser{key: "test/model", version: "v1"}
+
+	first, err := builder.Parse("foo.txt", []byte("persist"), parser)
 	if err != nil {
 		t.Fatal(err)
 	}
 
 	var buf bytes.Buffer
-	if err := cache.Save(&buf); err != nil {
+	if err := builder.Freeze().Save(&buf); err != nil {
 		t.Fatal(err)
 	}
 
@@ -168,12 +198,11 @@ func TestCacheRoundTripPersistence(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	second, err := loaded.Lookup("foo.txt", []byte("persist"), parser)
+	second, hit, err := loaded.Get("foo.txt", []byte("persist"), parser)
 	if err != nil {
 		t.Fatal(err)
 	}
-
-	if !second.CacheHit {
+	if !hit {
 		t.Fatal("loaded cache should hit")
 	}
 	if !reflect.DeepEqual(first.Model, second.Model) {

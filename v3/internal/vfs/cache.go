@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"sort"
-	"sync"
 )
 
 // Parser describes how a file should be parsed into a serializable model.
@@ -30,22 +29,12 @@ type LookupResult struct {
 	CacheHit    bool
 }
 
-// Cache stores parsed models keyed by path and parser identity.
-//
-// The cache stores only encoded parsed models and hashes, not raw file content.
-// A parser is called only when the file content hash or parser version changes,
-// or when the entry was not already present.
-type Cache struct {
-	mu      sync.RWMutex
-	entries map[cacheKey]Entry
-}
-
 type cacheKey struct {
 	Path      string
 	ParserKey string
 }
 
-// Entry is the serialized form stored by Cache.
+// Entry is the serialized form stored by the parsed-model cache.
 type Entry struct {
 	Path          string `json:"path"`
 	ParserKey     string `json:"parserKey"`
@@ -55,20 +44,44 @@ type Entry struct {
 	EncodedModel  []byte `json:"encodedModel"`
 }
 
-// Persisted is the on-disk representation for a Cache.
+// Persisted is the on-disk representation for a parsed-model cache.
 type Persisted struct {
 	Entries []Entry `json:"entries"`
 }
 
-func NewCache() *Cache {
-	return &Cache{
-		entries: make(map[cacheKey]Entry),
-	}
+// CacheBuilder is the mutable single-writer form of the parsed-model cache.
+//
+// The intended ownership model is:
+//  1. worker goroutines parse and send results to a coordinator
+//  2. the coordinator alone calls Parse and mutates the builder
+//  3. Freeze is called when the build phase ends
+type CacheBuilder struct {
+	entries map[cacheKey]Entry
 }
 
-// Lookup returns a parsed model for path and parser, reusing a cached encoded
+// Cache is the frozen read-only form of the parsed-model cache.
+type Cache struct {
+	entries map[cacheKey]Entry
+}
+
+func NewCacheBuilder(seed *Cache) *CacheBuilder {
+	builder := &CacheBuilder{
+		entries: make(map[cacheKey]Entry),
+	}
+	if seed == nil {
+		return builder
+	}
+	for key, entry := range seed.entries {
+		builder.entries[key] = cloneEntry(entry)
+	}
+	return builder
+}
+
+// Parse returns a parsed model for path and parser, reusing a cached encoded
 // model when the content hash and parser version match.
-func (c *Cache) Lookup(path string, data []byte, parser Parser) (LookupResult, error) {
+//
+// This method is intended to be called only by the single build-phase owner.
+func (b *CacheBuilder) Parse(path string, data []byte, parser Parser) (LookupResult, error) {
 	if parser == nil {
 		return LookupResult{}, fmt.Errorf("nil parser")
 	}
@@ -82,10 +95,7 @@ func (c *Cache) Lookup(path string, data []byte, parser Parser) (LookupResult, e
 	contentHash := digest(data)
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
 
-	c.mu.RLock()
-	entry, ok := c.entries[key]
-	c.mu.RUnlock()
-	if ok && entry.ParserVersion == parser.Version() && entry.ContentHash == contentHash {
+	if entry, ok := b.entries[key]; ok && entry.ParserVersion == parser.Version() && entry.ContentHash == contentHash {
 		model, err := parser.Decode(entry.EncodedModel)
 		if err != nil {
 			return LookupResult{}, fmt.Errorf("decode cached model for %s with parser %s: %w", path, parser.Key(), err)
@@ -113,9 +123,7 @@ func (c *Cache) Lookup(path string, data []byte, parser Parser) (LookupResult, e
 		ModelHash:   digest(encoded),
 		CacheHit:    false,
 	}
-
-	c.mu.Lock()
-	c.entries[key] = Entry{
+	b.entries[key] = Entry{
 		Path:          path,
 		ParserKey:     parser.Key(),
 		ParserVersion: parser.Version(),
@@ -123,22 +131,57 @@ func (c *Cache) Lookup(path string, data []byte, parser Parser) (LookupResult, e
 		ModelHash:     result.ModelHash,
 		EncodedModel:  append([]byte(nil), encoded...),
 	}
-	c.mu.Unlock()
-
 	return result, nil
+}
+
+func (b *CacheBuilder) Freeze() *Cache {
+	entries := make(map[cacheKey]Entry, len(b.entries))
+	for key, entry := range b.entries {
+		entries[key] = cloneEntry(entry)
+	}
+	return &Cache{entries: entries}
+}
+
+// Get returns a parsed model from a frozen cache.
+//
+// The bool result is false when the entry is absent or stale for the supplied
+// content hash / parser version. Frozen caches never parse or mutate.
+func (c *Cache) Get(path string, data []byte, parser Parser) (LookupResult, bool, error) {
+	if parser == nil {
+		return LookupResult{}, false, fmt.Errorf("nil parser")
+	}
+	if parser.Key() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser key must not be empty")
+	}
+	if parser.Version() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser version must not be empty")
+	}
+
+	contentHash := digest(data)
+	key := cacheKey{Path: path, ParserKey: parser.Key()}
+	entry, ok := c.entries[key]
+	if !ok || entry.ParserVersion != parser.Version() || entry.ContentHash != contentHash {
+		return LookupResult{}, false, nil
+	}
+
+	model, err := parser.Decode(entry.EncodedModel)
+	if err != nil {
+		return LookupResult{}, false, fmt.Errorf("decode cached model for %s with parser %s: %w", path, parser.Key(), err)
+	}
+	return LookupResult{
+		Model:       model,
+		ContentHash: entry.ContentHash,
+		ModelHash:   entry.ModelHash,
+		CacheHit:    true,
+	}, true, nil
 }
 
 // Snapshot returns a stable persisted view of the cache suitable for
 // serialization.
 func (c *Cache) Snapshot() Persisted {
-	c.mu.RLock()
-	defer c.mu.RUnlock()
-
 	entries := make([]Entry, 0, len(c.entries))
 	for _, entry := range c.entries {
-		clone := entry
-		clone.EncodedModel = append([]byte(nil), entry.EncodedModel...)
-		entries = append(entries, clone)
+		entries = append(entries, cloneEntry(entry))
 	}
 	sort.Slice(entries, func(i, j int) bool {
 		if entries[i].Path != entries[j].Path {
@@ -158,19 +201,17 @@ func Load(r io.Reader) (*Cache, error) {
 	if err := json.NewDecoder(r).Decode(&persisted); err != nil {
 		return nil, err
 	}
-	cache := NewCache()
+	entries := make(map[cacheKey]Entry, len(persisted.Entries))
 	for _, entry := range persisted.Entries {
 		key := cacheKey{Path: entry.Path, ParserKey: entry.ParserKey}
-		cache.entries[key] = Entry{
-			Path:          entry.Path,
-			ParserKey:     entry.ParserKey,
-			ParserVersion: entry.ParserVersion,
-			ContentHash:   entry.ContentHash,
-			ModelHash:     entry.ModelHash,
-			EncodedModel:  append([]byte(nil), entry.EncodedModel...),
-		}
+		entries[key] = cloneEntry(entry)
 	}
-	return cache, nil
+	return &Cache{entries: entries}, nil
+}
+
+func cloneEntry(entry Entry) Entry {
+	entry.EncodedModel = append([]byte(nil), entry.EncodedModel...)
+	return entry
 }
 
 func digest(data []byte) string {
