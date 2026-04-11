@@ -117,16 +117,15 @@ func Run(opts Options) (*vfs.Cache, error) {
 		var imports []interface{}
 		for _, lang := range active {
 			res := lang.GenerateRules(v3language.GenerateArgs{
-				Config:       args.Config,
-				Repo:         args.Repo,
-				Dir:          args.Dir,
-				Rel:          args.Rel,
-				File:         args.File,
-				Subdirs:      args.Subdirs,
-				RegularFiles: args.RegularFiles,
-				GenFiles:     args.GenFiles,
-				OtherEmpty:   empty,
-				OtherGen:     gen,
+				Config:     args.Config,
+				Repo:       args.Repo,
+				PackageDir: args.PackageDir,
+				Dir:        args.Dir,
+				Rel:        args.Rel,
+				File:       args.File,
+				GenFiles:   args.GenFiles,
+				OtherEmpty: empty,
+				OtherGen:   gen,
 			})
 			if len(res.Gen) != len(res.Imports) {
 				return fmt.Errorf("%s: language %s generated %d rules but returned %d imports", args.Rel, lang.Name(), len(res.Gen), len(res.Imports))

@@ -13,6 +13,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
 	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
+	golang "github.com/bazelbuild/bazel-gazelle/v3/language/go"
 )
 
 type fakeModel struct {
@@ -79,11 +80,12 @@ func (*fakeLang) Kinds() map[string]rule.KindInfo {
 func (*fakeLang) GenerateRules(args v3language.GenerateArgs) v3language.GenerateResult {
 	var gen []*rule.Rule
 	var imports []interface{}
-	for _, name := range args.RegularFiles {
+	for _, file := range args.PackageDir.RegularFiles() {
+		name := file.Name()
 		if !strings.HasSuffix(name, ".foo") {
 			continue
 		}
-		result, err := args.Repo.GetModel(pathJoin(args.Rel, name), "fake/model")
+		result, err := file.GetModel("fake/model")
 		if err != nil {
 			panic(err)
 		}
@@ -163,14 +165,47 @@ func TestRunGeneratesIndexesAndResolvesWholeRepo(t *testing.T) {
 	}
 }
 
-func pathJoin(parts ...string) string {
-	var filtered []string
-	for _, part := range parts {
-		if part != "" {
-			filtered = append(filtered, part)
-		}
+func TestRunWithGoLanguageGeneratesAndResolves(t *testing.T) {
+	root := t.TempDir()
+	writeRunFile(t, filepath.Join(root, "BUILD.bazel"), "# gazelle:prefix example.com/repo\n")
+	writeRunFile(t, filepath.Join(root, "a", "a.go"), "package a\n")
+	writeRunFile(t, filepath.Join(root, "b", "b.go"), "package b\nimport _ \"example.com/repo/a\"\n")
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.RepoName = "repo"
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+	cfg.IndexLibraries = true
+
+	emitted := make(map[string]string)
+	_, err := Run(Options{
+		Config:    cfg,
+		Languages: []v3language.Language{golang.NewLanguage()},
+		Emit: func(c *config.Config, f *rule.File) error {
+			f.Sync()
+			emitted[f.Pkg] = string(f.Format())
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
 	}
-	return strings.Join(filtered, "/")
+
+	gotA := emitted["a"]
+	if !strings.Contains(gotA, "go_library(") {
+		t.Fatalf("package a output missing go_library:\n%s", gotA)
+	}
+	if !strings.Contains(gotA, "importpath = \"example.com/repo/a\"") {
+		t.Fatalf("package a output missing importpath:\n%s", gotA)
+	}
+
+	gotB := emitted["b"]
+	if !strings.Contains(gotB, "go_library(") {
+		t.Fatalf("package b output missing go_library:\n%s", gotB)
+	}
+	if !strings.Contains(gotB, "\"//a") && !strings.Contains(gotB, "\"../a") {
+		t.Fatalf("package b output missing dep on a:\n%s", gotB)
+	}
 }
 
 func writeRunFile(t *testing.T, path, content string) {

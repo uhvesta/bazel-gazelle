@@ -13,6 +13,7 @@ import (
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/rule"
 	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
+	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
 )
 
 var directiveRe = regexp.MustCompile(`^#\s*gazelle:(\w+)\s*(.*?)\s*$`)
@@ -20,15 +21,14 @@ var directiveRe = regexp.MustCompile(`^#\s*gazelle:(\w+)\s*(.*?)\s*$`)
 type Func func(args FuncArgs) error
 
 type FuncArgs struct {
-	Repo         *vfs.Snapshot
-	Dir          string
-	Rel          string
-	Config       *config.Config
-	Update       bool
-	File         *rule.File
-	Subdirs      []string
-	RegularFiles []string
-	GenFiles     []string
+	Repo       *vfs.Snapshot
+	PackageDir *vfs.Dir
+	Dir        string
+	Rel        string
+	Config     *config.Config
+	Update     bool
+	File       *rule.File
+	GenFiles   []string
 }
 
 // Walk traverses the whole repo snapshot in depth-first post-order.
@@ -87,7 +87,11 @@ func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, kn
 	}
 	checkDirectives(c, knownDirectives, file)
 	for _, cext := range cexts {
-		cext.Configure(c, rel, file)
+		if vfsConfigurer, ok := cext.(v3language.VFSConfigurer); ok {
+			vfsConfigurer.ConfigureRepo(c, repo, rel, file)
+		} else {
+			cext.Configure(c, rel, file)
+		}
 	}
 	wc = getWalkConfig(c)
 	if wc != nil && wc.isExcludedDir(rel) {
@@ -142,17 +146,24 @@ func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, kn
 		return vi, nil
 	}
 	err = fn(FuncArgs{
-		Repo:         repo,
-		Dir:          filepath.Join(repo.Root, filepath.FromSlash(rel)),
-		Rel:          rel,
-		Config:       c,
-		Update:       wc == nil || !wc.ignore,
-		File:         file,
-		Subdirs:      subdirs,
-		RegularFiles: regularFiles,
-		GenFiles:     findGenFiles(wc, file),
+		Repo:       repo,
+		PackageDir: mustDir(repo, rel),
+		Dir:        filepath.Join(repo.Root, filepath.FromSlash(rel)),
+		Rel:        rel,
+		Config:     c,
+		Update:     wc == nil || !wc.ignore,
+		File:       file,
+		GenFiles:   findGenFiles(wc, file),
 	})
 	return vi, err
+}
+
+func mustDir(repo *vfs.Snapshot, rel string) *vfs.Dir {
+	dir, ok := repo.Dir(rel)
+	if !ok {
+		panic(fmt.Sprintf("directory missing from snapshot: %s", rel))
+	}
+	return dir
 }
 
 func loadBuildFile(repo *vfs.Snapshot, c *config.Config, rel string, entries []string) (*rule.File, error) {

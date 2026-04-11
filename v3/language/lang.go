@@ -40,18 +40,23 @@ type CrossResolver interface {
 	CrossResolve(args CrossResolveArgs) []resolve.FindResult
 }
 
+// VFSConfigurer is an optional extension point for configurers or languages
+// that need access to the frozen repo snapshot during Configure.
+type VFSConfigurer interface {
+	ConfigureRepo(c *config.Config, repo *vfs.Snapshot, rel string, f *rule.File)
+}
+
 // GenerateArgs contains arguments for Language.GenerateRules.
 type GenerateArgs struct {
-	Config       *config.Config
-	Repo         *vfs.Snapshot
-	Dir          string
-	Rel          string
-	File         *rule.File
-	Subdirs      []string
-	RegularFiles []string
-	GenFiles     []string
-	OtherEmpty   []*rule.Rule
-	OtherGen     []*rule.Rule
+	Config     *config.Config
+	Repo       *vfs.Snapshot
+	PackageDir *vfs.Dir
+	Dir        string
+	Rel        string
+	File       *rule.File
+	GenFiles   []string
+	OtherEmpty []*rule.Rule
+	OtherGen   []*rule.Rule
 }
 
 // GenerateResult contains return values for Language.GenerateRules.

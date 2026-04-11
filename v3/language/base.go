@@ -28,6 +28,10 @@ func (b *BaseLang) KnownDirectives() []string {
 
 func (b *BaseLang) Configure(c *config.Config, rel string, f *rule.File) {}
 
+func (b *BaseLang) ConfigureRepo(c *config.Config, repo *vfs.Snapshot, rel string, f *rule.File) {
+	b.Configure(c, rel, f)
+}
+
 func (b *BaseLang) Name() string {
 	return "BaseLang"
 }

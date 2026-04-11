@@ -103,6 +103,18 @@ type File struct {
 	Hash    string
 }
 
+// Dir is a read-only handle to a directory in a frozen repo snapshot.
+type Dir struct {
+	repo *Snapshot
+	rel  string
+}
+
+// FileRef is a lightweight handle to a file in a frozen repo snapshot.
+type FileRef struct {
+	repo *Snapshot
+	rel  string
+}
+
 type BuildOptions struct {
 	Cache    *Cache
 	Registry *Registry
@@ -266,6 +278,14 @@ func (s *Snapshot) Cache() *Cache {
 	return s.cache
 }
 
+func (s *Snapshot) Dir(rel string) (*Dir, bool) {
+	rel = cleanRepoPath(rel)
+	if _, ok := s.dirs[rel]; !ok {
+		return nil, false
+	}
+	return &Dir{repo: s, rel: rel}, true
+}
+
 func (s *Snapshot) File(path string) (File, bool) {
 	file, ok := s.files[cleanRepoPath(path)]
 	if !ok {
@@ -355,4 +375,101 @@ func cloneDirs(dirs map[string][]string) map[string][]string {
 		out[key] = append([]string(nil), entries...)
 	}
 	return out
+}
+
+func (d *Dir) Rel() string {
+	if d == nil {
+		return ""
+	}
+	return d.rel
+}
+
+func (d *Dir) AbsPath() string {
+	if d == nil || d.repo == nil {
+		return ""
+	}
+	return filepath.Join(d.repo.Root, filepath.FromSlash(d.rel))
+}
+
+func (d *Dir) Name() string {
+	if d == nil {
+		return ""
+	}
+	return pathBase(d.rel)
+}
+
+func (d *Dir) Child(name string) (*Dir, bool) {
+	if d == nil || d.repo == nil {
+		return nil, false
+	}
+	rel := cleanRepoPath(path.Join(d.rel, name))
+	if _, ok := d.repo.dirs[rel]; !ok {
+		return nil, false
+	}
+	return &Dir{repo: d.repo, rel: rel}, true
+}
+
+func (d *Dir) Subdirs() []*Dir {
+	if d == nil || d.repo == nil {
+		return nil
+	}
+	entries, ok := d.repo.dirs[d.rel]
+	if !ok {
+		return nil
+	}
+	var dirs []*Dir
+	for _, name := range entries {
+		childRel := cleanRepoPath(path.Join(d.rel, name))
+		if _, ok := d.repo.dirs[childRel]; ok {
+			dirs = append(dirs, &Dir{repo: d.repo, rel: childRel})
+		}
+	}
+	return dirs
+}
+
+func (d *Dir) RegularFiles() []FileRef {
+	if d == nil || d.repo == nil {
+		return nil
+	}
+	entries, ok := d.repo.dirs[d.rel]
+	if !ok {
+		return nil
+	}
+	var files []FileRef
+	for _, name := range entries {
+		fileRel := cleanRepoPath(path.Join(d.rel, name))
+		if _, ok := d.repo.files[fileRel]; ok {
+			files = append(files, FileRef{repo: d.repo, rel: fileRel})
+		}
+	}
+	return files
+}
+
+func (f FileRef) Name() string {
+	return pathBase(f.rel)
+}
+
+func (f FileRef) Rel() string {
+	return f.rel
+}
+
+func (f FileRef) AbsPath() string {
+	if f.repo == nil {
+		return ""
+	}
+	return filepath.Join(f.repo.Root, filepath.FromSlash(f.rel))
+}
+
+func (f FileRef) Read() ([]byte, error) {
+	if f.repo == nil {
+		return nil, os.ErrNotExist
+	}
+	return f.repo.ReadFile(f.rel)
+}
+
+func (f FileRef) GetModel(parserKey string) (LookupResult, error) {
+	if f.repo == nil {
+		return LookupResult{}, os.ErrNotExist
+	}
+	return f.repo.GetModel(f.rel, parserKey)
 }

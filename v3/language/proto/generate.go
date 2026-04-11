@@ -41,7 +41,8 @@ func (*protoLang) GenerateRules(args v3language.GenerateArgs) v3language.Generat
 		}
 
 		var regularProtoFiles []string
-		for _, name := range args.RegularFiles {
+		for _, file := range args.PackageDir.RegularFiles() {
+			name := file.Name()
 			if strings.HasSuffix(name, ".proto") {
 				regularProtoFiles = append(regularProtoFiles, name)
 			}
