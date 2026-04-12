@@ -89,6 +89,7 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 
 	var snapshot *vfs.Snapshot
 	var timingOffset time.Duration
+	emitted := make(map[string][]byte)
 	if cmd == rerunCmd {
 		registry, err := run.Registry(langs)
 		if err != nil {
@@ -127,6 +128,11 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 		Emit: func(c *config.Config, f *rule.File) error {
 			f.Sync()
 			formatted := f.Format()
+			rel, err := filepath.Rel(cfg.RepoRoot, f.Path)
+			if err != nil {
+				return err
+			}
+			emitted[filepath.ToSlash(rel)] = append([]byte(nil), formatted...)
 			if existing, err := os.ReadFile(f.Path); err == nil && string(existing) == string(formatted) {
 				return nil
 			} else if err != nil && !errors.Is(err, os.ErrNotExist) {
@@ -137,6 +143,9 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 	})
 	if err != nil {
 		return err
+	}
+	if len(emitted) > 0 {
+		result.Snapshot = result.Snapshot.WithFileContents(emitted)
 	}
 	return saveSnapshot(stateBasePath(cfg.RepoRoot, vfs.StateFormat(stateFormat)), result.Snapshot, vfs.StateFormat(stateFormat))
 }

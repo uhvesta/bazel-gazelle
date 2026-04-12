@@ -1208,6 +1208,60 @@ func sortedKeys(m map[string]struct{}) []string {
 	return keys
 }
 
+// WithFileContents returns a shallow overlay snapshot with the provided
+// repo-relative file contents applied. This is used to persist post-emit BUILD
+// file bytes so rerun state reflects what was actually written to disk.
+func (s *Snapshot) WithFileContents(updates map[string][]byte) *Snapshot {
+	if s == nil || len(updates) == 0 {
+		return s
+	}
+	out := &Snapshot{
+		Root:                s.Root,
+		cache:               s.cache,
+		registry:            s.registry,
+		validBuildFileNames: append([]string(nil), s.validBuildFileNames...),
+		base:                s,
+		files:               make(map[string]File, len(updates)),
+		deletedFiles:        make(map[string]struct{}),
+		dirs:                make(map[string][]string),
+		deletedDirs:         make(map[string]struct{}),
+	}
+	for rel, data := range updates {
+		rel = cleanRepoPath(rel)
+		if rel == "" {
+			continue
+		}
+		out.files[rel] = File{
+			Path:    rel,
+			Content: append([]byte(nil), data...),
+			Hash:    digest(data),
+		}
+		parent := path.Dir(rel)
+		if parent == "." {
+			parent = ""
+		}
+		entries, ok := out.lookupDir(parent)
+		if !ok {
+			entries = nil
+		}
+		entries = append([]string(nil), entries...)
+		base := path.Base(rel)
+		found := false
+		for _, entry := range entries {
+			if entry == base {
+				found = true
+				break
+			}
+		}
+		if !found {
+			entries = append(entries, base)
+			sort.Strings(entries)
+		}
+		out.dirs[parent] = entries
+	}
+	return out
+}
+
 // Name returns the file's base name.
 func (f FileRef) Name() string {
 	return pathBase(f.rel)
