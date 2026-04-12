@@ -1,6 +1,6 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@io_bazel_rules_go//go:def.bzl", "nogo")
-load("//:def.bzl", "gazelle", "gazelle_binary")
+load("//:def.bzl", "gazelle", "gazelle_binary", "gazelle_vfsgazelle_binary")
 
 # gazelle:prefix github.com/uhvesta/bazel-gazelle
 # gazelle:exclude vendor
@@ -34,6 +34,14 @@ gazelle_binary(
         "//language/proto",
         "//language/go",
         "//internal/language/test_filegroup",
+    ],
+)
+
+gazelle_vfsgazelle_binary(
+    name = "gazelle_vfsgazelle_local",
+    languages = [
+        "//vfsgazelle/language/proto",
+        "//vfsgazelle/language/go",
     ],
 )
 
@@ -90,7 +98,7 @@ filegroup(
         "//testtools:all_files",
         "//tools:all_files",
         "//v2:all_files",
-        "//v3:all_files",
+        "//vfsgazelle:all_files",
         "//walk:all_files",
     ],
     visibility = ["//visibility:public"],
@@ -105,7 +113,7 @@ bzl_library(
         "//internal:go_repository",
         "//internal:overlay_repository",
         "//internal/generationtest",
-        "//v3:def",
+        "//vfsgazelle:def",
         "@bazel_gazelle_go_repository_config//:go_env.bzl",
         "@bazel_gazelle_is_bazel_module//:defs",
         "@bazel_skylib//lib:shell",

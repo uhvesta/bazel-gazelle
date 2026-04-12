@@ -1,0 +1,52 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+load("//vfsgazelle:def.bzl", "DEFAULT_LANGUAGES", "gazelle_vfsgazelle_binary")
+
+gazelle_vfsgazelle_binary(
+    name = "gazelle",
+    languages = DEFAULT_LANGUAGES,
+    visibility = ["//visibility:public"],
+)
+
+go_library(
+    name = "gazelle_lib",
+    # keep
+    srcs = ["main.go"],
+    importpath = "github.com/uhvesta/bazel-gazelle/vfsgazelle/cmd/gazelle",
+    tags = ["manual"],
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//resolve",
+        "//rule",
+        "//vfsgazelle/internal/vfs",
+        "//vfsgazelle/language",
+        "//vfsgazelle/language/go",
+        "//vfsgazelle/language/proto",
+        "//vfsgazelle/run",
+        "//vfsgazelle/walk",
+    ],
+)
+
+go_test(
+    name = "gazelle_test",
+    srcs = [
+        "langs.go",
+        "main_test.go",
+    ],
+    embed = [":gazelle_lib"],
+    deps = [
+        "//vfsgazelle/internal/vfs",
+    ],
+)
+
+filegroup(
+    name = "all_files",
+    testonly = True,
+    srcs = [
+        "BUILD.bazel",
+        "langs.go",
+        "main.go",
+        "main_test.go",
+    ],
+    visibility = ["//visibility:public"],
+)

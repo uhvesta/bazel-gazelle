@@ -1,6 +1,6 @@
 # Gazelle build file generator
 
-This file preserves the previous root `README.md`. The repo-root README now focuses on the high-level algorithm, `v3`, and incremental reruns.
+This file preserves the previous root `README.md`. The repo-root README now focuses on the high-level algorithm, `vfsgazelle`, and incremental reruns.
 
 Gazelle is a build file generator for Bazel projects. It can create new BUILD.bazel files for a project that follows language conventions, and it can update existing build files to include new sources, dependencies, and options. Gazelle natively supports Go and protobuf, and it may be [extended](extend.md) to support new languages and custom rule sets.
 

@@ -1,0 +1,51 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "run",
+    srcs = ["run.go"],
+    importpath = "github.com/uhvesta/bazel-gazelle/vfsgazelle/run",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//label",
+        "//merger",
+        "//repo",
+        "//resolve",
+        "//rule",
+        "//vfsgazelle/internal/vfs",
+        "//vfsgazelle/language",
+        "//vfsgazelle/walk",
+    ],
+)
+
+go_test(
+    name = "run_test",
+    size = "small",
+    srcs = ["run_test.go"],
+    embed = [":run"],
+    deps = [
+        "//config",
+        "//resolve",
+        "//rule",
+        "//vfsgazelle/internal/vfs",
+        "//vfsgazelle/language",
+        "//vfsgazelle/language/go",
+    ],
+)
+
+filegroup(
+    name = "all_files",
+    testonly = True,
+    srcs = [
+        "BUILD.bazel",
+        "run.go",
+        "run_test.go",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":run",
+    visibility = ["//visibility:public"],
+)

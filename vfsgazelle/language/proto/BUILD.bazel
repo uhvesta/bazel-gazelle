@@ -1,0 +1,63 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "proto",
+    srcs = [
+        "config.go",
+        "constants.go",
+        "fix.go",
+        "generate.go",
+        "kinds.go",
+        "known_imports.go",
+        "known_proto_imports.go",
+        "package.go",
+        "proto.go",
+        "resolve.go",
+    ],
+    importpath = "github.com/uhvesta/bazel-gazelle/vfsgazelle/language/proto",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//label",
+        "//merger",
+        "//pathtools",
+        "//resolve",
+        "//rule",
+        "//vfsgazelle/internal/vfs",
+        "//vfsgazelle/language",
+    ],
+)
+
+go_test(
+    name = "proto_test",
+    size = "small",
+    srcs = ["proto_test.go"],
+    embed = [":proto"],
+    deps = ["//vfsgazelle/internal/vfs"],
+)
+
+filegroup(
+    name = "all_files",
+    testonly = True,
+    srcs = [
+        "BUILD.bazel",
+        "config.go",
+        "constants.go",
+        "fix.go",
+        "generate.go",
+        "kinds.go",
+        "known_imports.go",
+        "known_proto_imports.go",
+        "package.go",
+        "proto.go",
+        "proto_test.go",
+        "resolve.go",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":proto",
+    visibility = ["//visibility:public"],
+)

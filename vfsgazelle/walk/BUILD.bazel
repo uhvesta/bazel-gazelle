@@ -1,0 +1,50 @@
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
+
+go_library(
+    name = "walk",
+    srcs = [
+        "config.go",
+        "walk.go",
+    ],
+    importpath = "github.com/uhvesta/bazel-gazelle/vfsgazelle/walk",
+    visibility = ["//visibility:public"],
+    deps = [
+        "//config",
+        "//flag",
+        "//rule",
+        "//vfsgazelle/internal/vfs",
+        "//vfsgazelle/language",
+        "@com_github_bazelbuild_buildtools//build",
+        "@com_github_bmatcuk_doublestar_v4//:doublestar",
+    ],
+)
+
+go_test(
+    name = "walk_test",
+    size = "small",
+    srcs = ["walk_test.go"],
+    embed = [":walk"],
+    deps = [
+        "//config",
+        "//rule",
+        "//vfsgazelle/internal/vfs",
+    ],
+)
+
+filegroup(
+    name = "all_files",
+    testonly = True,
+    srcs = [
+        "BUILD.bazel",
+        "config.go",
+        "walk.go",
+        "walk_test.go",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+alias(
+    name = "go_default_library",
+    actual = ":walk",
+    visibility = ["//visibility:public"],
+)

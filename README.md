@@ -1,6 +1,6 @@
 # Gazelle
 
-Gazelle generates and updates Bazel `BUILD.bazel` files. The traditional Gazelle pipeline and the new `v3` pipeline both preserve the same high-level rule-generation model:
+Gazelle generates and updates Bazel `BUILD.bazel` files. The traditional Gazelle pipeline and the new `vfsgazelle` pipeline both preserve the same high-level rule-generation model:
 
 1. discover packages and configuration
 2. generate/update rules for each package
@@ -8,18 +8,18 @@ Gazelle generates and updates Bazel `BUILD.bazel` files. The traditional Gazelle
 4. resolve dependencies against that index
 5. write updated BUILD files
 
-`v3` is intended to match normal Gazelle behavior as closely as possible. The main difference is the execution substrate: `v3` builds and reuses a snapshot-backed VFS, but it still tries to preserve Gazelle's walk, generate, index, resolve, and emit semantics wherever that is practical.
+`vfsgazelle` is intended to match normal Gazelle behavior as closely as possible. The main difference is the execution substrate: `vfsgazelle` builds and reuses a snapshot-backed VFS, but it still tries to preserve Gazelle's walk, generate, index, resolve, and emit semantics wherever that is practical.
 
-The older, general project README was moved to [docs/README.md](docs/README.md). This root README is now focused on how Gazelle works, how `v3` differs, and how to use incremental reruns safely.
+The older, general project README was moved to [docs/README.md](docs/README.md). This root README is now focused on how Gazelle works, how `vfsgazelle` differs, and how to use incremental reruns safely.
 
 **Contents**
 
 - [How Gazelle Works](#how-gazelle-works)
-- [How V3 Works](#how-v3-works)
+- [How vfsgazelle Works](#how-vfsgazelle-works)
 - [Plugin Porting](#plugin-porting)
 - [Incremental Reruns](#incremental-reruns)
 - [Watchman Setup](#watchman-setup)
-- [Why V3 Exists](#why-v3-exists)
+- [Why vfsgazelle Exists](#why-vfsgazelle-exists)
 - [Reference](#reference)
 
 ## How Gazelle Works
@@ -80,11 +80,11 @@ The language hooks line up with that ordering:
 
 That model is simple and deterministic, but it mixes filesystem IO and semantic work together during the run.
 
-## How V3 Works
+## How vfsgazelle Works
 
-`v3` keeps the same logical algorithm, but changes how inputs are prepared.
+`vfsgazelle` keeps the same logical algorithm, but changes how inputs are prepared.
 
-Instead of having languages read directly from the OS while Gazelle is walking, `v3` does this:
+Instead of having languages read directly from the OS while Gazelle is walking, `vfsgazelle` does this:
 
 1. build a repo snapshot / VFS
 2. parse and cache file models in that VFS
@@ -94,11 +94,11 @@ Instead of having languages read directly from the OS while Gazelle is walking, 
 So the big shift is:
 
 - classic Gazelle: IO and rule generation are interleaved
-- `v3`: IO is front-loaded into a snapshot, then the algorithm runs in memory
+- `vfsgazelle`: IO is front-loaded into a snapshot, then the algorithm runs in memory
 
 The goal is not to invent a different rule-generation model. The goal is to keep Gazelle's behavior as intact as possible while changing how filesystem state is prepared, cached, and reused.
 
-The current `v3` ordering is:
+The current `vfsgazelle` ordering is:
 
 1. build VFS
 2. prime parser cache
@@ -120,7 +120,7 @@ instead of direct `os.ReadFile` style access.
 
 ### What The VFS Stores
 
-The `v3` VFS is a repo snapshot plus a parsed-model cache.
+The `vfsgazelle` VFS is a repo snapshot plus a parsed-model cache.
 
 At a high level it stores:
 
@@ -143,7 +143,7 @@ The snapshot has two phases:
    - the snapshot is immutable
    - walk, generate, imports, and resolve read from that frozen state
 
-That split is why `v3` can stay deterministic without putting mutexes all over the read path.
+That split is why `vfsgazelle` can stay deterministic without putting mutexes all over the read path.
 
 ### Full Build vs Rerun
 
@@ -170,7 +170,7 @@ So `rerun` is still a whole-repo Gazelle run, but it is not a whole-repo filesys
 
 ### Dirtying And Rebuild Rules
 
-`v3` currently uses a simple, explicit invalidation model.
+`vfsgazelle` currently uses a simple, explicit invalidation model.
 
 - ordinary file edits
   - patch just those files
@@ -193,13 +193,13 @@ Before patching, `rerun` filters the incoming changed path list against the prev
 There is one important special case for BUILD files:
 
 - if a `BUILD` or `BUILD.bazel` file changes its `exclude` or `ignore` directives, that package subtree is rebuilt instead of doing a single-file patch
-- if that happens at the repo root package, `v3` falls back to a full VFS rebuild
+- if that happens at the repo root package, `vfsgazelle` falls back to a full VFS rebuild
 
 That rule exists because those directives change which descendants should even exist in the logical walk, so a local file patch is not enough.
 
 ### Persistence
 
-After a successful run, `v3` writes snapshot state to the OS cache directory.
+After a successful run, `vfsgazelle` writes snapshot state to the OS cache directory.
 
 That persisted state is intentionally compact:
 
@@ -216,7 +216,7 @@ That persisted state is intentionally compact:
 
 ### External Metadata And Lockfiles
 
-`v3` is designed to support language-specific external metadata without relying on generic remote discovery.
+`vfsgazelle` is designed to support language-specific external metadata without relying on generic remote discovery.
 
 A common example is a lockfile or metadata file that maps language-level symbols to external dependencies, for example:
 
@@ -225,7 +225,7 @@ A common example is a lockfile or metadata file that maps language-level symbols
 - a Rust crate metadata file
 - a language-specific dependency manifest that maps import paths or symbols to external Bazel labels
 
-The intended `v3` pattern is:
+The intended `vfsgazelle` pattern is:
 
 1. register a parser for that metadata file
 2. parse it into a cached semantic model in the VFS
@@ -253,11 +253,11 @@ For example, if a language has a metadata file, a plugin can:
    - in-repo `RuleIndex` first
    - lockfile-derived external index second
 
-That lets `v3` support external resolution as a local semantic data problem instead of a remote lookup problem.
+That lets `vfsgazelle` support external resolution as a local semantic data problem instead of a remote lookup problem.
 
 ## Plugin Porting
 
-At a high level, a normal Gazelle plugin and a `v3` plugin are trying to do the same job:
+At a high level, a normal Gazelle plugin and a `vfsgazelle` plugin are trying to do the same job:
 
 - interpret directives and config
 - inspect package-local files
@@ -290,9 +290,9 @@ Classic plugins often do extra IO with direct filesystem calls like:
 
 or helper APIs layered on top of the real filesystem.
 
-### V3 Plugin Shape
+### vfsgazelle Plugin Shape
 
-`v3` keeps the same broad lifecycle, but the interfaces are VFS-aware.
+`vfsgazelle` keeps the same broad lifecycle, but the interfaces are VFS-aware.
 
 Important differences:
 
@@ -306,9 +306,9 @@ Important differences:
 - plugins can register parsers up front and consume cached models through:
   - `Repo.GetModel(path, parserKey)`
 
-For most non-trivial `v3` ports, parser registration is not optional in practice. It is the normal way to move repeated parsing work into the VFS cache.
+For most non-trivial `vfsgazelle` ports, parser registration is not optional in practice. It is the normal way to move repeated parsing work into the VFS cache.
 
-So instead of relying on direct OS IO, a `v3` plugin is expected to use:
+So instead of relying on direct OS IO, a `vfsgazelle` plugin is expected to use:
 
 - `Repo.ReadFile(...)`
 - `Repo.ListDir(...)`
@@ -321,7 +321,7 @@ So instead of relying on direct OS IO, a `v3` plugin is expected to use:
 
 The easiest way to port an existing plugin is usually:
 
-1. copy the existing plugin into a `v3` package
+1. copy the existing plugin into a `vfsgazelle` package
 2. keep the high-level generation and resolve logic intact
 3. replace direct file IO with VFS calls
 4. add parser registration for expensive or repeated parsing work
@@ -339,12 +339,12 @@ In practice, the most common code changes are:
 
 In classic Gazelle, `GenerateRules` typically receives flat package slices and works against the live filesystem.
 
-In `v3`, `GenerateRules` receives a package view plus the frozen snapshot:
+In `vfsgazelle`, `GenerateRules` receives a package view plus the frozen snapshot:
 
 - classic:
   - package-local names and paths
   - direct filesystem access is common
-- `v3`:
+- `vfsgazelle`:
   - `Repo`
   - `PackageDir`
   - the package BUILD file
@@ -406,10 +406,10 @@ func (*fooLang) Imports(args language.ImportsArgs) []resolve.ImportSpec {
 func (*fooLang) Resolve(args language.ResolveArgs) {}
 ```
 
-The equivalent `v3` plugin keeps the same broad logic, but file access moves
+The equivalent `vfsgazelle` plugin keeps the same broad logic, but file access moves
 through the snapshot and the parser can be registered once up front.
 
-`v3` shape:
+`vfsgazelle` shape:
 
 ```go
 type fooLang struct{}
@@ -430,7 +430,7 @@ func (*fooLang) ConfigureRepo(c *config.Config, repo *vfs.Snapshot, rel string, 
     // repo inspection is needed.
 }
 
-func (*fooLang) GenerateRules(args v3language.GenerateArgs) v3language.GenerateResult {
+func (*fooLang) GenerateRules(args vfsgazellelanguage.GenerateArgs) vfsgazellelanguage.GenerateResult {
     var gen []*rule.Rule
     var imports []interface{}
 
@@ -453,17 +453,17 @@ func (*fooLang) GenerateRules(args v3language.GenerateArgs) v3language.GenerateR
         imports = append(imports, model.Imports)
     }
 
-    return v3language.GenerateResult{
+    return vfsgazellelanguage.GenerateResult{
         Gen:     gen,
         Imports: imports,
     }
 }
 
-func (*fooLang) Imports(args v3language.ImportsArgs) []resolve.ImportSpec {
+func (*fooLang) Imports(args vfsgazellelanguage.ImportsArgs) []resolve.ImportSpec {
     return nil
 }
 
-func (*fooLang) Resolve(args v3language.ResolveArgs) {}
+func (*fooLang) Resolve(args vfsgazellelanguage.ResolveArgs) {}
 ```
 
 The semantic change is small:
@@ -471,32 +471,32 @@ The semantic change is small:
 - classic plugin:
   - loops over `RegularFiles []string`
   - reads file bytes directly with `os.ReadFile`
-- `v3` plugin:
+- `vfsgazelle` plugin:
   - loops over `PackageDir.RegularFiles()`
   - reads parsed state through `GetModel(...)`
 
 That is the most common migration pattern: keep the rule logic, replace the
 filesystem plumbing.
 
-In a real `v3` plugin, registering the parser is part of the normal port. Without that, the plugin can still call `Repo.ReadFile(...)`, but it will miss one of the main benefits of `v3`: cached parsed semantic state.
+In a real `vfsgazelle` plugin, registering the parser is part of the normal port. Without that, the plugin can still call `Repo.ReadFile(...)`, but it will miss one of the main benefits of `vfsgazelle`: cached parsed semantic state.
 
 ### File IO Differences
 
 Classic plugins often mix semantic logic with filesystem calls.
 
-`v3` tries to separate those concerns:
+`vfsgazelle` tries to separate those concerns:
 
 - the VFS build phase does repo IO up front
 - parser registration turns expensive parsing into cached semantic models
 - the run phase reads from the frozen snapshot
 
-That means a good `v3` plugin usually:
+That means a good `vfsgazelle` plugin usually:
 
 - reads repo-local files through the VFS
 - parses structured files through registered parsers
 - avoids direct `os.*` access for repo-local data
 
-Direct OS access in a `v3` plugin should generally only remain for things that are not workspace snapshot data, such as:
+Direct OS access in a `vfsgazelle` plugin should generally only remain for things that are not workspace snapshot data, such as:
 
 - environment-dependent behavior
 - user cache dir selection
@@ -513,7 +513,7 @@ In both systems:
 - existing rules can still be indexed if their resolver returns imports
 - dependency resolution happens after the full index exists
 
-The practical `v3` difference is that plugins are expected to resolve from:
+The practical `vfsgazelle` difference is that plugins are expected to resolve from:
 
 - the frozen `RuleIndex`
 - the frozen VFS
@@ -523,7 +523,7 @@ instead of falling back to ad hoc filesystem or remote discovery during resolve.
 
 ### Good First Port
 
-A good first `v3` port usually looks like this:
+A good first `vfsgazelle` port usually looks like this:
 
 1. preserve the old rule-generation logic
 2. move file reads behind `Repo`
@@ -531,15 +531,15 @@ A good first `v3` port usually looks like this:
 4. consume that parsed model in `GenerateRules`
 5. keep `Resolve` behavior as close to the old plugin as possible
 
-That gets most of the `v3` benefits quickly without rewriting the plugin from scratch.
+That gets most of the `vfsgazelle` benefits quickly without rewriting the plugin from scratch.
 
 ## Incremental Reruns
 
-`v3` now supports two CLI modes:
+`vfsgazelle` now supports two CLI modes:
 
 ```text
-gazelle-v3 run
-gazelle-v3 rerun <changed paths...>
+gazelle-vfsgazelle run
+gazelle-vfsgazelle rerun <changed paths...>
 ```
 
 Useful flags:
@@ -548,7 +548,7 @@ Useful flags:
   - print per-phase timing information to stderr
   - on `rerun`, this includes `read_vfs_from_cache` and `patch_vfs`
 - `-state_format`
-  - choose `gob` or `json` for the persisted `v3` snapshot state
+  - choose `gob` or `json` for the persisted `vfsgazelle` snapshot state
   - `gob` is the default
 
 `run` does a full snapshot build and saves state in the OS cache directory.
@@ -569,20 +569,20 @@ Two safeguards are important for stable incremental use:
 
 1. unchanged patched files are ignored
    - if a changed path is passed to `rerun` but the file content hash is unchanged, the patch is a no-op
-   - if all incoming changes are no-ops, `v3` skips the full walk/generate/resolve algorithm entirely
+   - if all incoming changes are no-ops, `vfsgazelle` skips the full walk/generate/resolve algorithm entirely
 
 2. unchanged BUILD output is not rewritten
-   - before writing a `BUILD.bazel` file, `v3` compares the formatted output to the existing file bytes
+   - before writing a `BUILD.bazel` file, `vfsgazelle` compares the formatted output to the existing file bytes
    - if the content is identical, it does not rewrite the file
 
 Those two behaviors are what make external watch tooling practical without falling into self-triggered loops.
 
 ## Watchman Setup
 
-There is no built-in Watchman daemon in `v3` yet. The intended model is:
+There is no built-in Watchman daemon in `vfsgazelle` yet. The intended model is:
 
 - let Watchman or another tool detect changed files
-- pass the changed repo-relative paths to `gazelle-v3 rerun`
+- pass the changed repo-relative paths to `gazelle-vfsgazelle rerun`
 
 The important part is that the watcher batches and coalesces file changes before invoking Gazelle.
 
@@ -591,14 +591,14 @@ A practical shape is:
 1. do one initial cold run
 
 ```sh
-bazel run //v3/cmd/gazelle -- run
+bazel run //vfsgazelle/cmd/gazelle -- run
 ```
 
 2. configure Watchman to invoke a small wrapper script
 3. the wrapper script passes the changed file list to:
 
 ```sh
-bazel run //v3/cmd/gazelle -- rerun path/to/file1.go path/to/file2.proto
+bazel run //vfsgazelle/cmd/gazelle -- rerun path/to/file1.go path/to/file2.proto
 ```
 
 Recommended filters:
@@ -614,10 +614,10 @@ A concrete Watchman example looks like this:
 
 ```sh
 watchman watch ~/src/myrepo
-watchman -- trigger ~/src/myrepo gazelle-v3 \
+watchman -- trigger ~/src/myrepo gazelle-vfsgazelle \
   '**/*.go' '**/*.proto' '**/BUILD' '**/BUILD.bazel' \
   '**/WORKSPACE' '**/WORKSPACE.bazel' '**/REPO.bazel' '.bazelignore' \
-  -- ./tools/run-gazelle-v3-rerun.sh
+  -- ./tools/run-gazelle-vfsgazelle-rerun.sh
 ```
 
 In practice most teams should use a small wrapper script instead of inlining everything in one command:
@@ -627,7 +627,7 @@ In practice most teams should use a small wrapper script instead of inlining eve
 3. invoke:
 
 ```sh
-bazel run //v3/cmd/gazelle -- rerun <paths...>
+bazel run //vfsgazelle/cmd/gazelle -- rerun <paths...>
 ```
 
 These examples may not work as-is in every environment. Check the Watchman syntax and trigger model here:
@@ -637,14 +637,14 @@ These examples may not work as-is in every environment. Check the Watchman synta
 Or build your own file system service that collects changed repo-relative paths and invokes:
 
 ```sh
-bazel run //v3/cmd/gazelle -- rerun <paths...>
+bazel run //vfsgazelle/cmd/gazelle -- rerun <paths...>
 ```
 
-The important point is not the exact Watchman syntax. The important point is that `v3` expects a coalesced list of changed repo-relative paths, and it is safe for that list to include some noise because the rerun path does hash checks and no-op filtering.
+The important point is not the exact Watchman syntax. The important point is that `vfsgazelle` expects a coalesced list of changed repo-relative paths, and it is safe for that list to include some noise because the rerun path does hash checks and no-op filtering.
 
-## Why V3 Exists
+## Why vfsgazelle Exists
 
-`v3` is not about changing the semantic rule-generation model. It is about changing the execution model.
+`vfsgazelle` is not about changing the semantic rule-generation model. It is about changing the execution model.
 
 Benefits:
 
@@ -656,14 +656,14 @@ Benefits:
 
 This is different from classic lazy indexing.
 
-### V3 vs Lazy Indexing
+### vfsgazelle vs Lazy Indexing
 
 Lazy indexing optimizes one part of the classic algorithm:
 
 - it avoids indexing the whole repo eagerly
 - it is still fundamentally tied to the classic filesystem-driven traversal model
 
-`v3` is broader:
+`vfsgazelle` is broader:
 
 - it snapshots the repo
 - it caches parsed models
@@ -672,17 +672,17 @@ Lazy indexing optimizes one part of the classic algorithm:
 
 Lazy indexing also depends on reasonably strong path conventions. In practice, it works best when import paths, package roots, and directory layout line up in a predictable way. Some monorepos and mixed-language codebases do not have those conventions, which makes lazy indexing less effective or harder to configure correctly.
 
-So lazy indexing is mainly an indexing optimization inside the classic design, while `v3` is a different execution substrate for the whole algorithm and does not depend as heavily on those path-structure assumptions.
+So lazy indexing is mainly an indexing optimization inside the classic design, while `vfsgazelle` is a different execution substrate for the whole algorithm and does not depend as heavily on those path-structure assumptions.
 
-### Why V3 Can Be Faster
+### Why vfsgazelle Can Be Faster
 
-For a cold run on a repo, `v3` still pays snapshot cost. The real performance payoff comes from reruns:
+For a cold run on a repo, `vfsgazelle` still pays snapshot cost. The real performance payoff comes from reruns:
 
 - unchanged files are not reparsed
 - unchanged snapshots can skip the whole algorithm
 - changed-file reruns avoid rebuilding the whole VFS
 
-That is why `v3` is most interesting for:
+That is why `vfsgazelle` is most interesting for:
 
 - editor-triggered reruns
 - watcher-driven workflows

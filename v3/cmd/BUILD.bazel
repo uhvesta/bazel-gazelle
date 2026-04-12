@@ -1,9 +1,0 @@
-filegroup(
-    name = "all_files",
-    testonly = True,
-    srcs = [
-        "BUILD.bazel",
-        "//v3/cmd/gazelle:all_files",
-    ],
-    visibility = ["//visibility:public"],
-)
