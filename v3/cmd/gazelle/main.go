@@ -180,7 +180,7 @@ func parseCommand(args []string) (command, []string, error) {
 	case "help", "-h", "-help", "--help":
 		return helpCmd, args[1:], nil
 	default:
-		return runCmd, args, nil
+		return helpCmd, nil, fmt.Errorf("unknown command %q", args[0])
 	}
 }
 
