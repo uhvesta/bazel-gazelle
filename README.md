@@ -128,6 +128,7 @@ At a high level it stores:
 - per-file path and content hash
 - raw file content when the runner still needs direct bytes
 - parsed models keyed by `(path, parser key, parser cache version, content hash)`
+- a parser-version manifest used to reject stale persisted parser caches up front
 
 The important design choice is that the semantic cache is the main cache. For parser-backed files like `.go`, `.proto`, and `go.mod`, the useful thing is usually the parsed model, not the raw bytes.
 
@@ -145,6 +146,14 @@ The snapshot has two phases:
 
 That split is why `vfsgazelle` can stay deterministic without putting mutexes all over the read path.
 
+Metadata and parser caches are also loaded differently on `rerun`:
+
+- snapshot metadata blocks startup
+- parser caches are started in the background, one future per parser key
+- `Repo.GetModel(path, parserKey)` blocks only on the parser cache for that parser
+
+That behavior is intentionally transparent to plugins. A plugin still just calls normal synchronous VFS methods.
+
 ### Full Build vs Rerun
 
 `run` builds the snapshot from scratch:
@@ -158,11 +167,11 @@ That split is why `vfsgazelle` can stay deterministic without putting mutexes al
 
 `rerun` starts from the previously saved frozen snapshot:
 
-1. load the saved snapshot and parsed-model cache
+1. load the saved snapshot metadata
 2. normalize the changed path list
 3. filter out changed paths that should not affect the walk
 4. patch only the changed/new/deleted files or directories
-5. reuse cached parsed models for unchanged content
+5. start parser-cache loads in the background and reuse cached parsed models for unchanged content
 6. freeze the updated snapshot
 7. rerun the whole Gazelle algorithm
 
@@ -197,6 +206,11 @@ There is one important special case for BUILD files:
 
 That rule exists because those directives change which descendants should even exist in the logical walk, so a local file patch is not enough.
 
+Repo-level traversal policy is treated the same way:
+
+- if `.bazelignore` changes the effective ignored path set, `vfsgazelle` falls back to a full VFS rebuild
+- if `REPO.bazel` changes the effective `ignore_directories(...)` set, `vfsgazelle` falls back to a full VFS rebuild
+
 ### Persistence
 
 After a successful run, `vfsgazelle` writes snapshot state to the OS cache directory.
@@ -205,7 +219,7 @@ That persisted state is intentionally compact:
 
 - it always keeps enough information to reconstruct the directory tree
 - it stores file hashes for change detection
-- it stores parsed models for parser-backed files
+- it stores parsed models for parser-backed files in per-parser cache files
 - it only keeps raw file content when direct bytes are still needed, especially for Bazel control files like:
   - `BUILD`
   - `BUILD.bazel`
@@ -213,6 +227,20 @@ That persisted state is intentionally compact:
   - `WORKSPACE.bazel`
   - `REPO.bazel`
   - `.bazelignore`
+
+The persisted layout is:
+
+- one metadata file
+- one parser cache file per parser key that actually has persisted entries
+
+For example:
+
+- `<hash>.meta.gob`
+- `<hash>.cache.go-fileinfo.gob`
+- `<hash>.cache.go-modfile.gob`
+- `<hash>.cache.proto-fileinfo.gob`
+
+The metadata file records the active parser cache versions. On `rerun`, if a parser's current `CacheVersion()` does not match the saved manifest entry, that parser cache file is rejected before load and that parser starts cold.
 
 ### External Metadata And Lockfiles
 
@@ -475,10 +503,7 @@ The semantic change is small:
   - loops over `PackageDir.RegularFiles()`
   - reads parsed state through `GetModel(...)`
 
-That is the most common migration pattern: keep the rule logic, replace the
-filesystem plumbing.
-
-In a real `vfsgazelle` plugin, registering the parser is part of the normal port. Without that, the plugin can still call `Repo.ReadFile(...)`, but it will miss one of the main benefits of `vfsgazelle`: cached parsed semantic state.
+That is the most common migration pattern: keep the rule logic, replace the filesystem plumbing, and register parsers for the file types the plugin repeatedly inspects.
 
 ### File IO Differences
 
@@ -546,7 +571,7 @@ Useful flags:
 
 - `-timings`
   - print per-phase timing information to stderr
-  - on `rerun`, this includes `read_vfs_from_cache` and `patch_vfs`
+  - on `rerun`, this includes metadata load and patching before the normal Gazelle phases
 - `-state_format`
   - choose `gob` or `json` for the persisted `vfsgazelle` snapshot state
   - `gob` is the default
@@ -555,11 +580,12 @@ Useful flags:
 
 `rerun` does this:
 
-1. load the saved frozen snapshot
+1. load the saved frozen snapshot metadata
 2. patch only the changed/new/deleted paths
-3. reuse cached parsed models for unchanged files
-4. rerun the whole Gazelle algorithm against the patched snapshot
-5. save the updated snapshot back to disk
+3. start per-parser cache loads in the background
+4. reuse cached parsed models for unchanged files
+5. rerun the whole Gazelle algorithm against the patched snapshot
+6. save the updated snapshot back to disk
 
 This means `rerun` is already useful even without a built-in watcher.
 

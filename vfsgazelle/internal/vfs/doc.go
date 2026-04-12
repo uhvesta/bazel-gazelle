@@ -13,4 +13,12 @@
 // parser-backed files, the semantic model is the primary cache artifact. Cache
 // entries are invalidated by file content hash and by each parser's declared
 // CacheVersion.
+//
+// Persisted state is split into:
+//   - one metadata file for the directory tree, file hashes, and selected raw content
+//   - one parser-cache file per parser key
+//
+// On rerun, metadata blocks startup, while parser caches are attached
+// independently and only block when a caller actually accesses a model for that
+// parser through GetModel.
 package vfs

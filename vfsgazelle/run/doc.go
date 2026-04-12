@@ -6,5 +6,7 @@
 //
 // The runner is intentionally whole-repo oriented. Incremental behavior comes
 // from snapshot patching and parser-cache reuse, not from partial package-level
-// execution of the algorithm.
+// execution of the algorithm. Real rerun speedups come from avoiding full
+// filesystem reconstruction and reusing parser-backed semantic models, while
+// keeping the Gazelle walk/generate/index/resolve model intact.
 package run
