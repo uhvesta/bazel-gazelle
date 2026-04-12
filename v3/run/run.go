@@ -25,16 +25,17 @@ import (
 )
 
 type Options struct {
-	Config      *config.Config
-	Languages   []v3language.Language
-	Configurers []config.Configurer
-	Prepared    bool
-	Timings     bool
-	Cache       *vfs.Cache
-	Snapshot    *vfs.Snapshot
-	Changes     []vfs.Change
-	Emit        func(*config.Config, *rule.File) error
-	Repos       []repo.Repo
+	Config       *config.Config
+	Languages    []v3language.Language
+	Configurers  []config.Configurer
+	Prepared     bool
+	Timings      bool
+	TimingOffset time.Duration
+	Cache        *vfs.Cache
+	Snapshot     *vfs.Snapshot
+	Changes      []vfs.Change
+	Emit         func(*config.Config, *rule.File) error
+	Repos        []repo.Repo
 }
 
 type phaseTiming struct {
@@ -78,7 +79,7 @@ func Run(opts Options) (*Result, error) {
 		if !opts.Timings {
 			return
 		}
-		timings = append(timings, phaseTiming{name: "total", duration: time.Since(startTotal)})
+		timings = append(timings, phaseTiming{name: "total", duration: opts.TimingOffset + time.Since(startTotal)})
 		for _, phase := range timings {
 			log.Printf("timing %-16s %s", phase.name, phase.duration)
 		}
@@ -117,14 +118,16 @@ func Run(opts Options) (*Result, error) {
 
 	phaseStart = time.Now()
 	var buildRepo *vfs.BuildSnapshot
+	buildPhaseName := "build_vfs"
 	if opts.Snapshot != nil {
+		buildPhaseName = "patch_vfs"
 		changes, fullRebuild, err := v3walk.PromoteTraversalChanges(opts.Snapshot, opts.Config, opts.Changes)
 		if err != nil {
 			return nil, err
 		}
 		changes = v3walk.FilterChanges(opts.Snapshot, opts.Config, changes)
 		if len(changes) == 0 {
-			recordPhase("build_vfs", phaseStart)
+			recordPhase(buildPhaseName, phaseStart)
 			recordPhase("prime_parsers", time.Now())
 			recordPhase("freeze_vfs", time.Now())
 			recordPhase("prepare_run", time.Now())
@@ -155,7 +158,7 @@ func Run(opts Options) (*Result, error) {
 	if err != nil {
 		return nil, err
 	}
-	recordPhase("build_vfs", phaseStart)
+	recordPhase(buildPhaseName, phaseStart)
 	if opts.Snapshot != nil && !buildRepo.Changed() {
 		recordPhase("prime_parsers", time.Now())
 		recordPhase("freeze_vfs", time.Now())

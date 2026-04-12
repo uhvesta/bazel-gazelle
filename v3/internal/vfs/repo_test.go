@@ -238,7 +238,7 @@ func TestSnapshotRoundTripPersistence(t *testing.T) {
 	frozen := buildSnapshot.Freeze()
 
 	var buf bytes.Buffer
-	if err := frozen.Save(&buf); err != nil {
+	if err := frozen.Save(&buf, StateFormatGob); err != nil {
 		t.Fatal(err)
 	}
 	loaded, err := LoadSnapshot(&buf, registry)

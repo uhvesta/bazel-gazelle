@@ -11,6 +11,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"time"
 
 	"github.com/bazelbuild/bazel-gazelle/config"
 	"github.com/bazelbuild/bazel-gazelle/resolve"
@@ -62,9 +63,9 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 	configurers := makeConfigurers(langs)
 	fs := flag.NewFlagSet("gazelle-v3", flag.ContinueOnError)
 	var timings bool
-	var compressState bool
+	var stateFormat string
 	fs.BoolVar(&timings, "timings", false, "print per-phase v3 run timings to stderr")
-	fs.BoolVar(&compressState, "compress_state", false, "write the saved v3 state file with gzip compression")
+	fs.StringVar(&stateFormat, "state_format", string(vfs.StateFormatGob), "persisted v3 state format: gob or json")
 	fs.Usage = func() {
 		_ = help()
 	}
@@ -87,12 +88,18 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 	}
 
 	var snapshot *vfs.Snapshot
+	var timingOffset time.Duration
 	if cmd == rerunCmd {
 		registry, err := run.Registry(langs)
 		if err != nil {
 			return err
 		}
+		loadStart := time.Now()
 		snapshot, err = loadSnapshot(statePath(cfg.RepoRoot), registry)
+		timingOffset = time.Since(loadStart)
+		if timings {
+			log.Printf("timing %-16s %s", "read_vfs_from_cache", timingOffset)
+		}
 		if err != nil {
 			if !errors.Is(err, os.ErrNotExist) {
 				return err
@@ -102,13 +109,14 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 	}
 
 	result, err := run.Run(run.Options{
-		Config:      cfg,
-		Languages:   langs,
-		Configurers: configurers,
-		Prepared:    true,
-		Timings:     timings,
-		Snapshot:    snapshot,
-		Changes:     changesFromArgs(fs.Args()),
+		Config:       cfg,
+		Languages:    langs,
+		Configurers:  configurers,
+		Prepared:     true,
+		Timings:      timings,
+		TimingOffset: timingOffset,
+		Snapshot:     snapshot,
+		Changes:      changesFromArgs(fs.Args()),
 		Emit: func(c *config.Config, f *rule.File) error {
 			f.Sync()
 			formatted := f.Format()
@@ -123,7 +131,7 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 	if err != nil {
 		return err
 	}
-	return saveSnapshot(statePath(cfg.RepoRoot), result.Snapshot, compressState)
+	return saveSnapshot(statePath(cfg.RepoRoot), result.Snapshot, vfs.StateFormat(stateFormat))
 }
 
 func makeConfigurers(langs []v3language.Language) []config.Configurer {
@@ -152,7 +160,7 @@ Notes:
   v3 currently runs on the whole repository.
   Bare invocation is the same as 'run'.
   Use -timings to print per-phase timing information.
-  Use -compress_state to gzip the saved v3 state file.
+  Use -state_format to choose gob or json for the saved v3 state file.
   run saves VFS state in the OS cache dir for later rerun commands.
   rerun expects changed/new/deleted repo-relative paths.
   Watch mode is not wired into this CLI yet.
@@ -198,7 +206,7 @@ func statePath(repoRoot string) string {
 	return filepath.Join(cacheDir, "bazel-gazelle", "v3", fmt.Sprintf("%x.json", sum[:8]))
 }
 
-func saveSnapshot(path string, snapshot *vfs.Snapshot, compress bool) error {
+func saveSnapshot(path string, snapshot *vfs.Snapshot, format vfs.StateFormat) error {
 	if snapshot == nil {
 		return nil
 	}
@@ -210,13 +218,7 @@ func saveSnapshot(path string, snapshot *vfs.Snapshot, compress bool) error {
 		return err
 	}
 	defer f.Close()
-	var w io.Writer = f
-	if compress {
-		zw := gzip.NewWriter(f)
-		defer zw.Close()
-		w = zw
-	}
-	return snapshot.Save(w)
+	return snapshot.Save(f, format)
 }
 
 func loadSnapshot(path string, registry *vfs.Registry) (*vfs.Snapshot, error) {

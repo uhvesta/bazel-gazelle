@@ -1,6 +1,8 @@
 package vfs
 
 import (
+	"bufio"
+	"encoding/gob"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -9,6 +11,18 @@ import (
 	"path"
 	"path/filepath"
 	"sort"
+)
+
+type StateFormat string
+
+const (
+	StateFormatGob  StateFormat = "gob"
+	StateFormatJSON StateFormat = "json"
+)
+
+const (
+	stateMagicGob  = "GZV3GOB1\n"
+	stateMagicJSON = "GZV3JSN1\n"
 )
 
 type ChangeKind string
@@ -39,7 +53,7 @@ var alwaysPersistContent = map[string]bool{
 	"WORKSPACE.bazel": true,
 }
 
-func (s *Snapshot) Save(w io.Writer) error {
+func (s *Snapshot) Save(w io.Writer, format StateFormat) error {
 	if s == nil {
 		return fmt.Errorf("nil snapshot")
 	}
@@ -62,12 +76,26 @@ func (s *Snapshot) Save(w io.Writer) error {
 		dirs[dir] = append([]string(nil), entries...)
 	}
 
-	return json.NewEncoder(w).Encode(persistedSnapshot{
+	persisted := persistedSnapshot{
 		Root:  s.Root,
 		Files: files,
 		Dirs:  dirs,
 		Cache: s.cache.Snapshot(),
-	})
+	}
+	switch format {
+	case "", StateFormatGob:
+		if _, err := io.WriteString(w, stateMagicGob); err != nil {
+			return err
+		}
+		return gob.NewEncoder(w).Encode(persisted)
+	case StateFormatJSON:
+		if _, err := io.WriteString(w, stateMagicJSON); err != nil {
+			return err
+		}
+		return json.NewEncoder(w).Encode(persisted)
+	default:
+		return fmt.Errorf("unknown state format %q", format)
+	}
 }
 
 func (s *Snapshot) shouldPersistContent(rel string) bool {
@@ -84,9 +112,31 @@ func (s *Snapshot) shouldPersistContent(rel string) bool {
 }
 
 func LoadSnapshot(r io.Reader, registry *Registry) (*Snapshot, error) {
-	var persisted persistedSnapshot
-	if err := json.NewDecoder(r).Decode(&persisted); err != nil {
+	br := bufio.NewReader(r)
+	format, err := detectStateFormat(br)
+	if err != nil {
 		return nil, err
+	}
+	var persisted persistedSnapshot
+	switch format {
+	case StateFormatGob:
+		if _, err := br.Discard(len(stateMagicGob)); err != nil {
+			return nil, err
+		}
+		if err := gob.NewDecoder(br).Decode(&persisted); err != nil {
+			return nil, err
+		}
+	case StateFormatJSON:
+		if hasStateMagic(br, stateMagicJSON) {
+			if _, err := br.Discard(len(stateMagicJSON)); err != nil {
+				return nil, err
+			}
+		}
+		if err := json.NewDecoder(br).Decode(&persisted); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unknown state format %q", format)
 	}
 	cacheEntries := make(map[cacheKey]Entry, len(persisted.Cache.Entries))
 	for _, entry := range persisted.Cache.Entries {
@@ -112,6 +162,32 @@ func LoadSnapshot(r io.Reader, registry *Registry) (*Snapshot, error) {
 		files:    files,
 		dirs:     dirs,
 	}, nil
+}
+
+func detectStateFormat(r *bufio.Reader) (StateFormat, error) {
+	if hasStateMagic(r, stateMagicGob) {
+		return StateFormatGob, nil
+	}
+	if hasStateMagic(r, stateMagicJSON) {
+		return StateFormatJSON, nil
+	}
+	// Backward compatibility with older JSON snapshots that had no header.
+	first, err := r.Peek(1)
+	if err != nil {
+		if err == io.EOF {
+			return StateFormatJSON, nil
+		}
+		return "", err
+	}
+	if len(first) == 1 && (first[0] == '{' || first[0] == '[') {
+		return StateFormatJSON, nil
+	}
+	return StateFormatGob, nil
+}
+
+func hasStateMagic(r *bufio.Reader, magic string) bool {
+	b, err := r.Peek(len(magic))
+	return err == nil && string(b) == magic
 }
 
 func Patch(root string, prev *Snapshot, opts BuildOptions, changes []Change) (*BuildSnapshot, error) {

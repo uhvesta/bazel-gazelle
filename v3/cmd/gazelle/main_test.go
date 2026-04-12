@@ -27,16 +27,16 @@ func TestSaveLoadSnapshot(t *testing.T) {
 	snapshot := bs.Freeze()
 
 	for _, tc := range []struct {
-		name     string
-		compress bool
+		name   string
+		format vfs.StateFormat
 	}{
-		{name: "plain", compress: false},
-		{name: "gzip", compress: true},
+		{name: "gob", format: vfs.StateFormatGob},
+		{name: "json", format: vfs.StateFormatJSON},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			path := filepath.Join(t.TempDir(), "state.json")
-			if err := saveSnapshot(path, snapshot, tc.compress); err != nil {
+			if err := saveSnapshot(path, snapshot, tc.format); err != nil {
 				t.Fatal(err)
 			}
 

@@ -8,6 +8,8 @@ Gazelle generates and updates Bazel `BUILD.bazel` files. The traditional Gazelle
 4. resolve dependencies against that index
 5. write updated BUILD files
 
+`v3` is intended to match normal Gazelle behavior as closely as possible. The main difference is the execution substrate: `v3` builds and reuses a snapshot-backed VFS, but it still tries to preserve Gazelle's walk, generate, index, resolve, and emit semantics wherever that is practical.
+
 The older, general project README was moved to [docs/README.md](docs/README.md). This root README is now focused on how Gazelle works, how `v3` differs, and how to use incremental reruns safely.
 
 **Contents**
@@ -92,6 +94,8 @@ So the big shift is:
 
 - classic Gazelle: IO and rule generation are interleaved
 - `v3`: IO is front-loaded into a snapshot, then the algorithm runs in memory
+
+The goal is not to invent a different rule-generation model. The goal is to keep Gazelle's behavior as intact as possible while changing how filesystem state is prepared, cached, and reused.
 
 The current `v3` ordering is:
 
@@ -207,8 +211,6 @@ That persisted state is intentionally compact:
   - `REPO.bazel`
   - `.bazelignore`
 
-Compression can be enabled with `-compress_state`.
-
 ### External Metadata And Lockfiles
 
 `v3` is designed to support language-specific external metadata without relying on generic remote discovery.
@@ -256,6 +258,15 @@ That lets `v3` support external resolution as a local semantic data problem inst
 gazelle-v3 run
 gazelle-v3 rerun <changed paths...>
 ```
+
+Useful flags:
+
+- `-timings`
+  - print per-phase timing information to stderr
+  - on `rerun`, this includes `read_vfs_from_cache` and `patch_vfs`
+- `-state_format`
+  - choose `gob` or `json` for the persisted `v3` snapshot state
+  - `gob` is the default
 
 `run` does a full snapshot build and saves state in the OS cache directory.
 
