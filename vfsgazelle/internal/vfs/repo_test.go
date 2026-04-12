@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"reflect"
 	"testing"
+	"time"
 )
 
 func TestBuildSnapshotListsDirsAndFiles(t *testing.T) {
@@ -354,6 +355,97 @@ func TestPatchSkipsUnchangedFileContent(t *testing.T) {
 	}
 	if patched.Changed() {
 		t.Fatal("expected unchanged file patch to be skipped")
+	}
+}
+
+func TestSnapshotMetadataAccessDoesNotBlockOnBackgroundCacheLoad(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "pkg", "directive.cfg"), "hello")
+
+	buildSnapshot, err := Build(root, BuildOptions{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	frozen := buildSnapshot.Freeze()
+
+	block := make(chan struct{})
+	async := frozen.AttachCacheLoader(func() (*Cache, error) {
+		<-block
+		return frozen.Cache(), nil
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		_, err := async.ReadFile("pkg/directive.cfg")
+		done <- err
+	}()
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(100 * time.Millisecond):
+		t.Fatal("ReadFile blocked on background cache load")
+	}
+
+	close(block)
+}
+
+func TestSnapshotGetModelBlocksUntilBackgroundCacheLoadCompletes(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "pkg", "foo.txt"), "a\nb")
+
+	registry := NewRegistry()
+	parser := &countingParser{key: "test/model", version: "v1"}
+	if err := registry.Register(parser, MatchExtension(".txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	buildSnapshot, err := Build(root, BuildOptions{Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildSnapshot.GetModel("pkg/foo.txt", parser.Key()); err != nil {
+		t.Fatal(err)
+	}
+	frozen := buildSnapshot.Freeze()
+
+	block := make(chan struct{})
+	async := frozen.AttachCacheLoader(func() (*Cache, error) {
+		<-block
+		return frozen.Cache(), nil
+	})
+
+	done := make(chan error, 1)
+	go func() {
+		result, err := async.GetModel("pkg/foo.txt", parser.Key())
+		if err != nil {
+			done <- err
+			return
+		}
+		if !result.CacheHit {
+			done <- os.ErrInvalid
+			return
+		}
+		done <- nil
+	}()
+
+	select {
+	case err := <-done:
+		t.Fatalf("GetModel returned before background cache load completed: %v", err)
+	case <-time.After(50 * time.Millisecond):
+	}
+
+	close(block)
+
+	select {
+	case err := <-done:
+		if err != nil {
+			t.Fatal(err)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("GetModel did not complete after background cache load finished")
 	}
 }
 

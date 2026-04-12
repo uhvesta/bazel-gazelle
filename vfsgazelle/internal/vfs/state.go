@@ -79,8 +79,12 @@ func (s *Snapshot) Save(w io.Writer, format StateFormat) error {
 	}
 	persisted := persistedState{
 		Metadata: metadata,
-		Cache:    s.cache.Snapshot(),
 	}
+	cachePersisted, err := s.cache.snapshotPersisted()
+	if err != nil {
+		return err
+	}
+	persisted.Cache = cachePersisted
 	switch format {
 	case "", StateFormatGob:
 		if _, err := io.WriteString(w, stateMagicGob); err != nil {
@@ -125,7 +129,10 @@ func (s *Snapshot) SaveCache(w io.Writer, format StateFormat) error {
 	if s == nil || s.cache == nil {
 		return fmt.Errorf("nil snapshot cache")
 	}
-	persisted := s.cache.Snapshot()
+	persisted, err := s.cache.snapshotPersisted()
+	if err != nil {
+		return err
+	}
 	switch format {
 	case "", StateFormatGob:
 		if _, err := io.WriteString(w, cacheMagicGob); err != nil {
@@ -310,6 +317,18 @@ func (s *Snapshot) AttachCache(cache *Cache) *Snapshot {
 	}
 	out := *s
 	out.cache = cache
+	return &out
+}
+
+// AttachCacheLoader returns a shallow copy of snapshot with a parser cache
+// that begins loading immediately in the background and blocks only when
+// parser-backed cache access actually needs it.
+func (s *Snapshot) AttachCacheLoader(fn func() (*Cache, error)) *Snapshot {
+	if s == nil {
+		return nil
+	}
+	out := *s
+	out.cache = newPendingCache(fn)
 	return &out
 }
 

@@ -278,31 +278,23 @@ func loadSnapshot(base string, registry *vfs.Registry) (*vfs.Snapshot, time.Dura
 
 	type loadResult struct {
 		snapshot *vfs.Snapshot
-		cache    *vfs.Cache
 		duration time.Duration
 		err      error
 	}
 	metaCh := make(chan loadResult, 1)
-	cacheCh := make(chan loadResult, 1)
 	go func() {
 		start := time.Now()
 		snapshot, err := loadMetadataSnapshot(metaPath, registry)
 		metaCh <- loadResult{snapshot: snapshot, duration: time.Since(start), err: err}
 	}()
-	go func() {
-		start := time.Now()
-		cache, err := loadCachePayload(cachePath)
-		cacheCh <- loadResult{cache: cache, duration: time.Since(start), err: err}
-	}()
 	metaResult := <-metaCh
 	if metaResult.err != nil {
 		return nil, metaResult.duration, 0, metaResult.err
 	}
-	cacheResult := <-cacheCh
-	if cacheResult.err != nil {
-		return nil, metaResult.duration, cacheResult.duration, cacheResult.err
-	}
-	return metaResult.snapshot.AttachCache(cacheResult.cache), metaResult.duration, cacheResult.duration, nil
+	snapshot := metaResult.snapshot.AttachCacheLoader(func() (*vfs.Cache, error) {
+		return loadCachePayload(cachePath)
+	})
+	return snapshot, metaResult.duration, 0, nil
 }
 
 func loadLegacySnapshot(path string, registry *vfs.Registry) (*vfs.Snapshot, error) {

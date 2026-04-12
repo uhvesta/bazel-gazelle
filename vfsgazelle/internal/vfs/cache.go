@@ -60,25 +60,34 @@ type Persisted struct {
 //  3. Freeze is called when the build phase ends, transferring ownership of
 //     the entries into an immutable Cache
 type CacheBuilder struct {
-	entries map[cacheKey]Entry
+	base            *Cache
+	entries         map[cacheKey]Entry
+	deletedPaths    map[string]struct{}
+	deletedSubtrees []string
 }
 
 // Cache is the frozen read-only form of the parsed-model cache.
 type Cache struct {
-	entries map[cacheKey]Entry
+	base            *Cache
+	future          *cacheFuture
+	entries         map[cacheKey]Entry
+	deletedPaths    map[string]struct{}
+	deletedSubtrees []string
+}
+
+type cacheFuture struct {
+	done  chan struct{}
+	cache *Cache
+	err   error
 }
 
 // NewCacheBuilder creates a mutable cache builder, optionally seeded from a
 // previously frozen cache.
 func NewCacheBuilder(seed *Cache) *CacheBuilder {
 	builder := &CacheBuilder{
-		entries: make(map[cacheKey]Entry),
-	}
-	if seed == nil {
-		return builder
-	}
-	for key, entry := range seed.entries {
-		builder.entries[key] = cloneEntry(entry)
+		base:         seed,
+		entries:      make(map[cacheKey]Entry),
+		deletedPaths: make(map[string]struct{}),
 	}
 	return builder
 }
@@ -101,7 +110,9 @@ func (b *CacheBuilder) Parse(path string, data []byte, parser Parser) (LookupRes
 	contentHash := digest(data)
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
 
-	if entry, ok := b.entries[key]; ok && entry.ParserVersion == parser.CacheVersion() && entry.ContentHash == contentHash {
+	if entry, ok, err := b.lookupEntry(key); err != nil {
+		return LookupResult{}, err
+	} else if ok && entry.ParserVersion == parser.CacheVersion() && entry.ContentHash == contentHash {
 		model, err := parser.Decode(entry.EncodedModel)
 		if err != nil {
 			return LookupResult{}, fmt.Errorf("decode cached model for %s with parser %s: %w", path, parser.Key(), err)
@@ -156,7 +167,10 @@ func (b *CacheBuilder) Check(path string, data []byte, parser Parser) (LookupRes
 
 	contentHash := digest(data)
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
-	entry, ok := b.entries[key]
+	entry, ok, err := b.lookupEntry(key)
+	if err != nil {
+		return LookupResult{}, false, err
+	}
 	if !ok || entry.ParserVersion != parser.CacheVersion() || entry.ContentHash != contentHash {
 		return LookupResult{}, false, nil
 	}
@@ -186,7 +200,10 @@ func (b *CacheBuilder) CheckHash(path, contentHash string, parser Parser) (Looku
 		return LookupResult{}, false, fmt.Errorf("parser cache version must not be empty")
 	}
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
-	entry, ok := b.entries[key]
+	entry, ok, err := b.lookupEntry(key)
+	if err != nil {
+		return LookupResult{}, false, err
+	}
 	if !ok || entry.ParserVersion != parser.CacheVersion() || entry.ContentHash != contentHash {
 		return LookupResult{}, false, nil
 	}
@@ -206,6 +223,7 @@ func (b *CacheBuilder) CheckHash(path, contentHash string, parser Parser) (Looku
 // single coordinator goroutine after worker parsing completes.
 func (b *CacheBuilder) StoreEntry(entry Entry) {
 	key := cacheKey{Path: entry.Path, ParserKey: entry.ParserKey}
+	delete(b.deletedPaths, entry.Path)
 	b.entries[key] = cloneEntry(entry)
 }
 
@@ -220,6 +238,7 @@ func (b *CacheBuilder) DeletePath(path string) {
 			delete(b.entries, key)
 		}
 	}
+	b.deletedPaths[path] = struct{}{}
 }
 
 // DeleteSubtree removes all cached parser entries under prefix.
@@ -233,6 +252,7 @@ func (b *CacheBuilder) DeleteSubtree(prefix string) {
 			delete(b.entries, key)
 		}
 	}
+	b.deletedSubtrees = append(b.deletedSubtrees, prefix)
 }
 
 // Freeze consumes the builder and returns an immutable cache.
@@ -241,8 +261,17 @@ func (b *CacheBuilder) Freeze() *Cache {
 		return &Cache{entries: make(map[cacheKey]Entry)}
 	}
 	entries := b.entries
+	deletedPaths := b.deletedPaths
+	deletedSubtrees := append([]string(nil), b.deletedSubtrees...)
 	b.entries = nil
-	return &Cache{entries: entries}
+	b.deletedPaths = nil
+	b.deletedSubtrees = nil
+	return &Cache{
+		base:            b.base,
+		entries:         entries,
+		deletedPaths:    deletedPaths,
+		deletedSubtrees: deletedSubtrees,
+	}
 }
 
 // Get returns a parsed model from a frozen cache.
@@ -262,7 +291,10 @@ func (c *Cache) Get(path string, data []byte, parser Parser) (LookupResult, bool
 
 	contentHash := digest(data)
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
-	entry, ok := c.entries[key]
+	entry, ok, err := c.lookupEntry(key)
+	if err != nil {
+		return LookupResult{}, false, err
+	}
 	if !ok || entry.ParserVersion != parser.CacheVersion() || entry.ContentHash != contentHash {
 		return LookupResult{}, false, nil
 	}
@@ -291,7 +323,10 @@ func (c *Cache) GetHash(path, contentHash string, parser Parser) (LookupResult, 
 		return LookupResult{}, false, fmt.Errorf("parser cache version must not be empty")
 	}
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
-	entry, ok := c.entries[key]
+	entry, ok, err := c.lookupEntry(key)
+	if err != nil {
+		return LookupResult{}, false, err
+	}
 	if !ok || entry.ParserVersion != parser.CacheVersion() || entry.ContentHash != contentHash {
 		return LookupResult{}, false, nil
 	}
@@ -311,8 +346,17 @@ func (c *Cache) GetHash(path, contentHash string, parser Parser) (LookupResult, 
 // serialization.
 // Snapshot returns the persisted representation of the cache.
 func (c *Cache) Snapshot() Persisted {
-	entries := make([]Entry, 0, len(c.entries))
-	for _, entry := range c.entries {
+	persisted, _ := c.snapshotPersisted()
+	return persisted
+}
+
+func (c *Cache) snapshotPersisted() (Persisted, error) {
+	flattened, err := c.flattenEntries()
+	if err != nil {
+		return Persisted{}, err
+	}
+	entries := make([]Entry, 0, len(flattened))
+	for _, entry := range flattened {
 		entries = append(entries, cloneEntry(entry))
 	}
 	sort.Slice(entries, func(i, j int) bool {
@@ -321,7 +365,133 @@ func (c *Cache) Snapshot() Persisted {
 		}
 		return entries[i].ParserKey < entries[j].ParserKey
 	})
-	return Persisted{Entries: entries}
+	return Persisted{Entries: entries}, nil
+}
+
+func (b *CacheBuilder) lookupEntry(key cacheKey) (Entry, bool, error) {
+	if b == nil {
+		return Entry{}, false, nil
+	}
+	if entry, ok := b.entries[key]; ok {
+		return cloneEntry(entry), true, nil
+	}
+	if b.isDeleted(key.Path) {
+		return Entry{}, false, nil
+	}
+	if b.base == nil {
+		return Entry{}, false, nil
+	}
+	return b.base.lookupEntry(key)
+}
+
+func (b *CacheBuilder) isDeleted(path string) bool {
+	if _, ok := b.deletedPaths[path]; ok {
+		return true
+	}
+	for _, prefix := range b.deletedSubtrees {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Cache) lookupEntry(key cacheKey) (Entry, bool, error) {
+	if c == nil {
+		return Entry{}, false, nil
+	}
+	if entry, ok := c.entries[key]; ok {
+		return cloneEntry(entry), true, nil
+	}
+	if c.isDeleted(key.Path) {
+		return Entry{}, false, nil
+	}
+	if c.base != nil {
+		return c.base.lookupEntry(key)
+	}
+	if c.future == nil {
+		return Entry{}, false, nil
+	}
+	base, err := c.future.wait()
+	if err != nil {
+		return Entry{}, false, err
+	}
+	if base == nil {
+		return Entry{}, false, nil
+	}
+	return base.lookupEntry(key)
+}
+
+func (c *Cache) isDeleted(path string) bool {
+	if _, ok := c.deletedPaths[path]; ok {
+		return true
+	}
+	for _, prefix := range c.deletedSubtrees {
+		if path == prefix || strings.HasPrefix(path, prefix+"/") {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *Cache) flattenEntries() (map[cacheKey]Entry, error) {
+	if c == nil {
+		return map[cacheKey]Entry{}, nil
+	}
+	entries := make(map[cacheKey]Entry)
+	if c.base != nil {
+		baseEntries, err := c.base.flattenEntries()
+		if err != nil {
+			return nil, err
+		}
+		for key, entry := range baseEntries {
+			entries[key] = cloneEntry(entry)
+		}
+	} else if c.future != nil {
+		base, err := c.future.wait()
+		if err != nil {
+			return nil, err
+		}
+		if base != nil {
+			baseEntries, err := base.flattenEntries()
+			if err != nil {
+				return nil, err
+			}
+			for key, entry := range baseEntries {
+				entries[key] = cloneEntry(entry)
+			}
+		}
+	}
+	for key := range entries {
+		if c.isDeleted(key.Path) {
+			delete(entries, key)
+		}
+	}
+	for key, entry := range c.entries {
+		entries[key] = cloneEntry(entry)
+	}
+	return entries, nil
+}
+
+func newPendingCache(fn func() (*Cache, error)) *Cache {
+	future := &cacheFuture{done: make(chan struct{})}
+	go func() {
+		future.cache, future.err = fn()
+		close(future.done)
+	}()
+	return &Cache{
+		future:       future,
+		entries:      make(map[cacheKey]Entry),
+		deletedPaths: make(map[string]struct{}),
+	}
+}
+
+func (f *cacheFuture) wait() (*Cache, error) {
+	if f == nil {
+		return nil, nil
+	}
+	<-f.done
+	return f.cache, f.err
 }
 
 func (c *Cache) Save(w io.Writer) error {
