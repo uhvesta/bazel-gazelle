@@ -113,6 +113,102 @@ That lets languages use:
 
 instead of direct `os.ReadFile` style access.
 
+### What The VFS Stores
+
+The `v3` VFS is a repo snapshot plus a parsed-model cache.
+
+At a high level it stores:
+
+- directory membership
+- per-file path and content hash
+- raw file content when the runner still needs direct bytes
+- parsed models keyed by `(path, parser key, parser version, content hash)`
+
+The important design choice is that the semantic cache is the main cache. For parser-backed files like `.go`, `.proto`, and `go.mod`, the useful thing is usually the parsed model, not the raw bytes.
+
+The snapshot has two phases:
+
+1. mutable build phase
+   - one coordinator owns the VFS maps and cache builder
+   - worker goroutines can read files and parse models
+   - workers send results back to the coordinator
+2. frozen run phase
+   - the snapshot is immutable
+   - walk, generate, imports, and resolve read from that frozen state
+
+That split is why `v3` can stay deterministic without putting mutexes all over the read path.
+
+### Full Build vs Rerun
+
+`run` builds the snapshot from scratch:
+
+1. enumerate the repo tree
+2. read file content
+3. compute content hashes
+4. prime parser-backed models
+5. freeze the snapshot
+6. run Gazelle against the frozen view
+
+`rerun` starts from the previously saved frozen snapshot:
+
+1. load the saved snapshot and parsed-model cache
+2. normalize the changed path list
+3. filter out changed paths that should not affect the walk
+4. patch only the changed/new/deleted files or directories
+5. reuse cached parsed models for unchanged content
+6. freeze the updated snapshot
+7. rerun the whole Gazelle algorithm
+
+So `rerun` is still a whole-repo Gazelle run, but it is not a whole-repo filesystem rebuild.
+
+### Dirtying And Rebuild Rules
+
+`v3` currently uses a simple, explicit invalidation model.
+
+- ordinary file edits
+  - patch just those files
+  - if the content hash is unchanged, the patch is ignored
+- deleted files
+  - remove the file from the snapshot and cache
+- newly created files
+  - add the file to the snapshot and parse any matching models
+- newly created directories
+  - rescan that subtree into the snapshot
+
+Before patching, `rerun` filters the incoming changed path list against the previous frozen snapshot and the effective walk rules. That means changes under these are ignored when they should be ignored:
+
+- `.bazelignore`
+- `REPO.bazel` `ignore_directories(...)`
+- `# gazelle:exclude`
+- `# gazelle:ignore`
+- `# gazelle:directive_file`
+
+There is one important special case for BUILD files:
+
+- if a `BUILD` or `BUILD.bazel` file changes its `exclude` or `ignore` directives, that package subtree is rebuilt instead of doing a single-file patch
+- if that happens at the repo root package, `v3` falls back to a full VFS rebuild
+
+That rule exists because those directives change which descendants should even exist in the logical walk, so a local file patch is not enough.
+
+### Persistence
+
+After a successful run, `v3` writes snapshot state to the OS cache directory.
+
+That persisted state is intentionally compact:
+
+- it always keeps enough information to reconstruct the directory tree
+- it stores file hashes for change detection
+- it stores parsed models for parser-backed files
+- it only keeps raw file content when direct bytes are still needed, especially for Bazel control files like:
+  - `BUILD`
+  - `BUILD.bazel`
+  - `WORKSPACE`
+  - `WORKSPACE.bazel`
+  - `REPO.bazel`
+  - `.bazelignore`
+
+Compression can be enabled with `-compress_state`.
+
 ## Incremental Reruns
 
 `v3` now supports two CLI modes:
@@ -180,6 +276,38 @@ Recommended filters:
 - ignore generated files you know Gazelle should not inspect
 
 Because `rerun` skips unchanged content and emit skips identical BUILD rewrites, a Watchman-driven loop can be stable without first building watcher logic into Gazelle itself.
+
+A concrete Watchman example looks like this:
+
+```sh
+watchman watch ~/src/myrepo
+watchman -- trigger ~/src/myrepo gazelle-v3 \
+  '**/*.go' '**/*.proto' '**/BUILD' '**/BUILD.bazel' \
+  '**/WORKSPACE' '**/WORKSPACE.bazel' '**/REPO.bazel' '.bazelignore' \
+  -- ./tools/run-gazelle-v3-rerun.sh
+```
+
+In practice most teams should use a small wrapper script instead of inlining everything in one command:
+
+1. collect the changed repo-relative paths from Watchman
+2. drop paths under `.git`, `bazel-*`, editor temp files, and other known junk
+3. invoke:
+
+```sh
+bazel run //v3/cmd/gazelle -- rerun <paths...>
+```
+
+These examples may not work as-is in every environment. Check the Watchman syntax and trigger model here:
+
+- https://facebook.github.io/watchman/
+
+Or build your own file system service that collects changed repo-relative paths and invokes:
+
+```sh
+bazel run //v3/cmd/gazelle -- rerun <paths...>
+```
+
+The important point is not the exact Watchman syntax. The important point is that `v3` expects a coalesced list of changed repo-relative paths, and it is safe for that list to include some noise because the rerun path does hash checks and no-op filtering.
 
 ## Why V3 Exists
 
