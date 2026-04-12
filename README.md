@@ -363,23 +363,6 @@ In practice, the most common code changes are:
 - replace config-time repo probing with snapshot queries in `ConfigureRepo`
 - add a parser with a manual `CacheVersion()` string and bump it when parser semantics change
 
-### Function Signature Differences
-
-In classic Gazelle, `GenerateRules` typically receives flat package slices and works against the live filesystem.
-
-In `vfsgazelle`, `GenerateRules` receives a package view plus the frozen snapshot:
-
-- classic:
-  - package-local names and paths
-  - direct filesystem access is common
-- `vfsgazelle`:
-  - `Repo`
-  - `PackageDir`
-  - the package BUILD file
-  - generated-file names from the BUILD file
-
-That means a ported plugin usually stops thinking in terms of "read this from disk right now" and starts thinking in terms of "read this from the frozen repo snapshot" or "load this cached parsed model".
-
 ### Concrete Example
 
 Here is a simplified example of a classic Gazelle plugin that reads `.foo`
@@ -435,7 +418,7 @@ func (*fooLang) Resolve(args language.ResolveArgs) {}
 ```
 
 The equivalent `vfsgazelle` plugin keeps the same broad logic, but file access moves
-through the snapshot and the parser can be registered once up front.
+through the snapshot and the parser is registered up front.
 
 `vfsgazelle` shape:
 
@@ -454,11 +437,9 @@ func (fooParser) CacheVersion() string { return "v1" }
 
 func (*fooLang) ConfigureRepo(c *config.Config, repo *vfs.Snapshot, rel string, f *rule.File) {
     // Read directives from f and update c.Exts as needed.
-    // Use repo.ReadFile / repo.ListDir / repo.GetModel here if config-time
-    // repo inspection is needed.
 }
 
-func (*fooLang) GenerateRules(args vfsgazellelanguage.GenerateArgs) vfsgazellelanguage.GenerateResult {
+func (*fooLang) GenerateRules(args vlang.GenerateArgs) vlang.GenerateResult {
     var gen []*rule.Rule
     var imports []interface{}
 
@@ -481,17 +462,17 @@ func (*fooLang) GenerateRules(args vfsgazellelanguage.GenerateArgs) vfsgazellela
         imports = append(imports, model.Imports)
     }
 
-    return vfsgazellelanguage.GenerateResult{
+    return vlang.GenerateResult{
         Gen:     gen,
         Imports: imports,
     }
 }
 
-func (*fooLang) Imports(args vfsgazellelanguage.ImportsArgs) []resolve.ImportSpec {
+func (*fooLang) Imports(args vlang.ImportsArgs) []resolve.ImportSpec {
     return nil
 }
 
-func (*fooLang) Resolve(args vfsgazellelanguage.ResolveArgs) {}
+func (*fooLang) Resolve(args vlang.ResolveArgs) {}
 ```
 
 The semantic change is small:
@@ -545,18 +526,6 @@ The practical `vfsgazelle` difference is that plugins are expected to resolve fr
 - language-specific cached metadata
 
 instead of falling back to ad hoc filesystem or remote discovery during resolve.
-
-### Good First Port
-
-A good first `vfsgazelle` port usually looks like this:
-
-1. preserve the old rule-generation logic
-2. move file reads behind `Repo`
-3. register one parser for the plugin's main source file type
-4. consume that parsed model in `GenerateRules`
-5. keep `Resolve` behavior as close to the old plugin as possible
-
-That gets most of the `vfsgazelle` benefits quickly without rewriting the plugin from scratch.
 
 ## Incremental Reruns
 
@@ -636,7 +605,7 @@ Recommended filters:
 
 Because `rerun` skips unchanged content and emit skips identical BUILD rewrites, a Watchman-driven loop can be stable without first building watcher logic into Gazelle itself.
 
-A concrete Watchman example looks like this:
+A simple Watchman trigger example looks like this:
 
 ```sh
 watchman watch ~/src/myrepo
@@ -646,7 +615,7 @@ watchman -- trigger ~/src/myrepo gazelle-vfsgazelle \
   -- ./tools/run-gazelle-vfsgazelle-rerun.sh
 ```
 
-In practice most teams should use a small wrapper script instead of inlining everything in one command:
+In practice most teams should use a small wrapper script instead of relying on a one-line trigger:
 
 1. collect the changed repo-relative paths from Watchman
 2. drop paths under `.git`, `bazel-*`, editor temp files, and other known junk
@@ -656,7 +625,7 @@ In practice most teams should use a small wrapper script instead of inlining eve
 bazel run //vfsgazelle/cmd/gazelle -- rerun <paths...>
 ```
 
-These examples may not work as-is in every environment. Check the Watchman syntax and trigger model here:
+These examples may not work as-is in every environment. Check Watchman syntax and trigger behavior here:
 
 - https://facebook.github.io/watchman/
 
