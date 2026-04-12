@@ -209,6 +209,45 @@ That persisted state is intentionally compact:
 
 Compression can be enabled with `-compress_state`.
 
+### External Metadata And Lockfiles
+
+`v3` is designed to support language-specific external metadata without relying on generic remote discovery.
+
+A common example is a lockfile or metadata file that maps language-level symbols to external dependencies, for example:
+
+- a module lockfile
+- a package manifest lockfile
+- a Rust crate metadata file
+- a language-specific dependency manifest that maps import paths or symbols to external Bazel labels
+
+The intended `v3` pattern is:
+
+1. register a parser for that metadata file
+2. parse it into a cached semantic model in the VFS
+3. load that model through `Repo.GetModel(...)`
+4. use it during `Configure`, `GenerateRules`, `Imports`, or `Resolve`
+
+In practice that means external dependency resolution can be:
+
+- language-specific
+- deterministic
+- snapshot-backed
+- incremental
+
+instead of relying on a shared “remote cache” abstraction or on-demand subprocess/network discovery.
+
+For example, if a language has a metadata file, a plugin can:
+
+1. parse that metadata file into:
+   - package or symbol -> external dependency identifier
+   - external dependency identifier -> Bazel label
+2. cache that parsed model in the VFS
+3. during `Resolve`, check:
+   - in-repo `RuleIndex` first
+   - lockfile-derived external index second
+
+That lets `v3` support external resolution as a local semantic data problem instead of a remote lookup problem.
+
 ## Incremental Reruns
 
 `v3` now supports two CLI modes:
