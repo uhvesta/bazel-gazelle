@@ -51,6 +51,7 @@ type Change struct {
 type persistedMetadata struct {
 	Root                string              `json:"root"`
 	ValidBuildFileNames []string            `json:"validBuildFileNames,omitempty"`
+	ParserVersions      map[string]string   `json:"parserVersions,omitempty"`
 	Files               []File              `json:"files"`
 	Dirs                map[string][]string `json:"dirs"`
 }
@@ -149,6 +150,24 @@ func (s *Snapshot) SaveCache(w io.Writer, format StateFormat) error {
 	}
 }
 
+// SaveCachePersisted writes a precomputed parser-cache payload.
+func SaveCachePersisted(w io.Writer, format StateFormat, persisted Persisted) error {
+	switch format {
+	case "", StateFormatGob:
+		if _, err := io.WriteString(w, cacheMagicGob); err != nil {
+			return err
+		}
+		return gob.NewEncoder(w).Encode(persisted)
+	case StateFormatJSON:
+		if _, err := io.WriteString(w, cacheMagicJSON); err != nil {
+			return err
+		}
+		return json.NewEncoder(w).Encode(persisted)
+	default:
+		return fmt.Errorf("unknown state format %q", format)
+	}
+}
+
 func (s *Snapshot) persistedMetadata() (persistedMetadata, error) {
 	if s == nil {
 		return persistedMetadata{}, fmt.Errorf("nil snapshot")
@@ -182,9 +201,30 @@ func (s *Snapshot) persistedMetadata() (persistedMetadata, error) {
 	return persistedMetadata{
 		Root:                s.Root,
 		ValidBuildFileNames: append([]string(nil), s.validBuildFileNames...),
+		ParserVersions:      s.copyParserVersions(),
 		Files:               files,
 		Dirs:                dirs,
 	}, nil
+}
+
+func (s *Snapshot) copyParserVersions() map[string]string {
+	if s == nil {
+		return nil
+	}
+	if s.parserVersions != nil {
+		out := make(map[string]string, len(s.parserVersions))
+		for key, version := range s.parserVersions {
+			out[key] = version
+		}
+		return out
+	}
+	return registryParserVersions(s.registry)
+}
+
+// ParserVersions returns the parser cache-version manifest recorded for the
+// snapshot's registry.
+func (s *Snapshot) ParserVersions() map[string]string {
+	return s.copyParserVersions()
 }
 
 func (s *Snapshot) shouldPersistContent(rel string) bool {
@@ -332,6 +372,18 @@ func (s *Snapshot) AttachCacheLoader(fn func() (*Cache, error)) *Snapshot {
 	return &out
 }
 
+// AttachParserCacheLoaders returns a shallow copy of snapshot with one cache
+// loader per parser key. Parser-backed lookups wait only on the parser they
+// actually access.
+func (s *Snapshot) AttachParserCacheLoaders(loaders map[string]func() (*Cache, error)) *Snapshot {
+	if s == nil {
+		return nil
+	}
+	out := *s
+	out.cache = newPendingCachesByParser(loaders)
+	return &out
+}
+
 func detectStateFormat(r *bufio.Reader) (StateFormat, error) {
 	if hasStateMagic(r, stateMagicGob) {
 		return StateFormatGob, nil
@@ -408,12 +460,24 @@ func snapshotFromMetadata(metadata persistedMetadata, registry *Registry, cache 
 		Root:                metadata.Root,
 		cache:               cache,
 		registry:            registry,
+		parserVersions:      copyStringMap(metadata.ParserVersions),
 		validBuildFileNames: validBuildFileNames,
 		files:               files,
 		deletedFiles:        make(map[string]struct{}),
 		dirs:                dirs,
 		deletedDirs:         make(map[string]struct{}),
 	}
+}
+
+func copyStringMap(src map[string]string) map[string]string {
+	if len(src) == 0 {
+		return nil
+	}
+	dst := make(map[string]string, len(src))
+	for key, value := range src {
+		dst[key] = value
+	}
+	return dst
 }
 
 // Patch applies a changed-path set to a prior frozen snapshot and returns a

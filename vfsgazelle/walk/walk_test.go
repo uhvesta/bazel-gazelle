@@ -328,6 +328,64 @@ func TestPromoteTraversalChangesForRootIgnoreChangeTriggersFullRebuild(t *testin
 	}
 }
 
+func TestPromoteTraversalChangesForBazelIgnoreChangeTriggersFullRebuild(t *testing.T) {
+	root := t.TempDir()
+	writeWalkFile(t, filepath.Join(root, ".bazelignore"), "ignored\n")
+
+	repo, err := buildFrozenSnapshot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+
+	writeWalkFile(t, filepath.Join(root, ".bazelignore"), "other\n")
+
+	got, fullRebuild, err := PromoteTraversalChanges(repo, cfg, []vfs.Change{
+		{Path: ".bazelignore", Kind: vfs.ChangeModify},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fullRebuild {
+		t.Fatal("fullRebuild = false, want true")
+	}
+	if got != nil {
+		t.Fatalf("PromoteTraversalChanges() changes = %#v, want nil", got)
+	}
+}
+
+func TestPromoteTraversalChangesForRepoBazelIgnoreDirectoriesChangeTriggersFullRebuild(t *testing.T) {
+	root := t.TempDir()
+	writeWalkFile(t, filepath.Join(root, "REPO.bazel"), "ignore_directories([\"vendor/**\"])\n")
+
+	repo, err := buildFrozenSnapshot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+
+	writeWalkFile(t, filepath.Join(root, "REPO.bazel"), "ignore_directories([\"third_party/**\"])\n")
+
+	got, fullRebuild, err := PromoteTraversalChanges(repo, cfg, []vfs.Change{
+		{Path: "REPO.bazel", Kind: vfs.ChangeModify},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fullRebuild {
+		t.Fatal("fullRebuild = false, want true")
+	}
+	if got != nil {
+		t.Fatalf("PromoteTraversalChanges() changes = %#v, want nil", got)
+	}
+}
+
 func buildFrozenSnapshot(root string) (*vfs.Snapshot, error) {
 	build, err := vfs.Build(root, vfs.BuildOptions{})
 	if err != nil {

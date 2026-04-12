@@ -114,6 +114,7 @@ type Snapshot struct {
 	Root                string
 	cache               *Cache
 	registry            *Registry
+	parserVersions      map[string]string
 	validBuildFileNames []string
 	base                *Snapshot
 	files               map[string]File
@@ -685,6 +686,7 @@ func (s *BuildSnapshot) Freeze() *Snapshot {
 		Root:                s.Root,
 		cache:               cache,
 		registry:            s.registry,
+		parserVersions:      registryParserVersions(s.registry),
 		validBuildFileNames: append([]string(nil), s.validBuildFileNames...),
 		base:                s.base,
 		files:               files,
@@ -692,6 +694,20 @@ func (s *BuildSnapshot) Freeze() *Snapshot {
 		dirs:                dirs,
 		deletedDirs:         s.deletedDirs,
 	}
+}
+
+func registryParserVersions(registry *Registry) map[string]string {
+	if registry == nil {
+		return nil
+	}
+	versions := make(map[string]string, len(registry.byKey))
+	for key, registered := range registry.byKey {
+		if registered.Parser == nil {
+			continue
+		}
+		versions[key] = registered.Parser.CacheVersion()
+	}
+	return versions
 }
 
 // Builder returns the mutable parsed-model cache owned by the build snapshot.

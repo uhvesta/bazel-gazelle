@@ -67,6 +67,26 @@ func PromoteTraversalChanges(repo *vfs.Snapshot, c *config.Config, changes []vfs
 	promoted := make([]vfs.Change, 0, len(changes))
 	for _, change := range changes {
 		rel := path.Clean(change.Path)
+		switch rel {
+		case ".bazelignore":
+			changed, err := bazelIgnoreChanged(repo)
+			if err != nil {
+				return nil, false, err
+			}
+			if changed {
+				return nil, true, nil
+			}
+			continue
+		case "REPO.bazel":
+			changed, err := repoIgnoreDirectoriesChanged(repo)
+			if err != nil {
+				return nil, false, err
+			}
+			if changed {
+				return nil, true, nil
+			}
+			continue
+		}
 		if !isBuildFilePath(c, rel) {
 			promoted = append(promoted, change)
 			continue
@@ -86,6 +106,86 @@ func PromoteTraversalChanges(repo *vfs.Snapshot, c *config.Config, changes []vfs
 		promoted = append(promoted, vfs.Change{Path: dir, Kind: vfs.ChangeModify})
 	}
 	return promoted, false, nil
+}
+
+func bazelIgnoreChanged(repo *vfs.Snapshot) (bool, error) {
+	oldPaths, err := bazelIgnoreFromSnapshot(repo)
+	if err != nil {
+		return false, err
+	}
+	newPaths, err := loadBazelIgnore(repo.Root)
+	if err != nil {
+		return false, err
+	}
+	return !slices.Equal(sortedMapKeys(oldPaths), sortedMapKeys(newPaths)), nil
+}
+
+func repoIgnoreDirectoriesChanged(repo *vfs.Snapshot) (bool, error) {
+	oldGlobs, err := repoIgnoreDirectoriesFromSnapshot(repo)
+	if err != nil {
+		return false, err
+	}
+	newGlobs, err := loadRepoDirectoryIgnore(repo.Root)
+	if err != nil {
+		return false, err
+	}
+	sort.Strings(oldGlobs)
+	sort.Strings(newGlobs)
+	return !slices.Equal(oldGlobs, newGlobs), nil
+}
+
+func bazelIgnoreFromSnapshot(repo *vfs.Snapshot) (map[string]struct{}, error) {
+	data, err := repo.ReadFile(".bazelignore")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return parseBazelIgnoreContent(data), nil
+}
+
+func repoIgnoreDirectoriesFromSnapshot(repo *vfs.Snapshot) ([]string, error) {
+	data, err := repo.ReadFile("REPO.bazel")
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil, nil
+		}
+		return nil, err
+	}
+	return parseRepoDirectoryIgnoreContent(repo.Root, data)
+}
+
+func parseBazelIgnoreContent(data []byte) map[string]struct{} {
+	excludes := make(map[string]struct{})
+	scanner := bufio.NewScanner(strings.NewReader(string(data)))
+	for scanner.Scan() {
+		ignore := strings.TrimSpace(scanner.Text())
+		if ignore == "" || ignore[0] == '#' {
+			continue
+		}
+		if strings.ContainsAny(ignore, "*?[") {
+			continue
+		}
+		excludes[path.Clean(ignore)] = struct{}{}
+	}
+	return excludes
+}
+
+func parseRepoDirectoryIgnoreContent(repoRoot string, data []byte) ([]string, error) {
+	return loadRepoDirectoryIgnoreFromData(repoRoot, data)
+}
+
+func sortedMapKeys(m map[string]struct{}) []string {
+	if len(m) == 0 {
+		return nil
+	}
+	keys := make([]string, 0, len(m))
+	for key := range m {
+		keys = append(keys, key)
+	}
+	sort.Strings(keys)
+	return keys
 }
 
 // Walk traverses the whole repo snapshot in depth-first post-order.

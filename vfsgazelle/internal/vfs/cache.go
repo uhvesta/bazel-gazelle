@@ -70,6 +70,7 @@ type CacheBuilder struct {
 type Cache struct {
 	base            *Cache
 	future          *cacheFuture
+	futures         map[string]*cacheFuture
 	entries         map[cacheKey]Entry
 	deletedPaths    map[string]struct{}
 	deletedSubtrees []string
@@ -368,6 +369,30 @@ func (c *Cache) snapshotPersisted() (Persisted, error) {
 	return Persisted{Entries: entries}, nil
 }
 
+func (c *Cache) snapshotPersistedByParser() (map[string]Persisted, error) {
+	flattened, err := c.flattenEntries()
+	if err != nil {
+		return nil, err
+	}
+	grouped := make(map[string][]Entry)
+	for _, entry := range flattened {
+		grouped[entry.ParserKey] = append(grouped[entry.ParserKey], cloneEntry(entry))
+	}
+	out := make(map[string]Persisted, len(grouped))
+	for key, entries := range grouped {
+		sort.Slice(entries, func(i, j int) bool {
+			return entries[i].Path < entries[j].Path
+		})
+		out[key] = Persisted{Entries: entries}
+	}
+	return out, nil
+}
+
+// SnapshotByParser returns a persisted view of the cache grouped by parser key.
+func (c *Cache) SnapshotByParser() (map[string]Persisted, error) {
+	return c.snapshotPersistedByParser()
+}
+
 func (b *CacheBuilder) lookupEntry(key cacheKey) (Entry, bool, error) {
 	if b == nil {
 		return Entry{}, false, nil
@@ -408,6 +433,18 @@ func (c *Cache) lookupEntry(key cacheKey) (Entry, bool, error) {
 	}
 	if c.base != nil {
 		return c.base.lookupEntry(key)
+	}
+	if c.futures != nil {
+		if future := c.futures[key.ParserKey]; future != nil {
+			base, err := future.wait()
+			if err != nil {
+				return Entry{}, false, err
+			}
+			if base == nil {
+				return Entry{}, false, nil
+			}
+			return base.lookupEntry(key)
+		}
 	}
 	if c.future == nil {
 		return Entry{}, false, nil
@@ -461,6 +498,23 @@ func (c *Cache) flattenEntries() (map[cacheKey]Entry, error) {
 				entries[key] = cloneEntry(entry)
 			}
 		}
+	} else if len(c.futures) > 0 {
+		for _, future := range c.futures {
+			base, err := future.wait()
+			if err != nil {
+				return nil, err
+			}
+			if base == nil {
+				continue
+			}
+			baseEntries, err := base.flattenEntries()
+			if err != nil {
+				return nil, err
+			}
+			for key, entry := range baseEntries {
+				entries[key] = cloneEntry(entry)
+			}
+		}
 	}
 	for key := range entries {
 		if c.isDeleted(key.Path) {
@@ -481,6 +535,23 @@ func newPendingCache(fn func() (*Cache, error)) *Cache {
 	}()
 	return &Cache{
 		future:       future,
+		entries:      make(map[cacheKey]Entry),
+		deletedPaths: make(map[string]struct{}),
+	}
+}
+
+func newPendingCachesByParser(loaders map[string]func() (*Cache, error)) *Cache {
+	futures := make(map[string]*cacheFuture, len(loaders))
+	for key, fn := range loaders {
+		future := &cacheFuture{done: make(chan struct{})}
+		futures[key] = future
+		go func(f *cacheFuture, load func() (*Cache, error)) {
+			f.cache, f.err = load()
+			close(f.done)
+		}(future, fn)
+	}
+	return &Cache{
+		futures:      futures,
 		entries:      make(map[cacheKey]Entry),
 		deletedPaths: make(map[string]struct{}),
 	}

@@ -11,6 +11,8 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
+	"strings"
 	"time"
 
 	"github.com/uhvesta/bazel-gazelle/config"
@@ -230,6 +232,22 @@ func statePaths(base string, format vfs.StateFormat) (string, string, string) {
 	return base + ".meta" + ext, base + ".cache" + ext, base + ext
 }
 
+func parserCachePath(base, parserKey string, format vfs.StateFormat) string {
+	ext := ".gob"
+	if format == vfs.StateFormatJSON {
+		ext = ".json"
+	}
+	return base + ".cache." + sanitizeParserKey(parserKey) + ext
+}
+
+func sanitizeParserKey(key string) string {
+	replaced := strings.NewReplacer("/", "-", "\\", "-", ":", "-", " ", "-", "\t", "-").Replace(key)
+	if replaced == "" {
+		return "unknown"
+	}
+	return replaced
+}
+
 func saveSnapshot(base string, snapshot *vfs.Snapshot, format vfs.StateFormat) error {
 	if snapshot == nil {
 		return nil
@@ -246,14 +264,24 @@ func saveSnapshot(base string, snapshot *vfs.Snapshot, format vfs.StateFormat) e
 	if err := snapshot.SaveMetadata(metaFile, format); err != nil {
 		return err
 	}
-	cacheFile, err := os.Create(cachePath)
+	groupedCaches, err := snapshot.Cache().SnapshotByParser()
 	if err != nil {
 		return err
 	}
-	defer cacheFile.Close()
-	if err := snapshot.SaveCache(cacheFile, format); err != nil {
-		return err
+	for key, persisted := range groupedCaches {
+		cacheFile, err := os.Create(parserCachePath(base, key, format))
+		if err != nil {
+			return err
+		}
+		if err := vfs.SaveCachePersisted(cacheFile, format, persisted); err != nil {
+			_ = cacheFile.Close()
+			return err
+		}
+		if err := cacheFile.Close(); err != nil {
+			return err
+		}
 	}
+	_ = os.Remove(cachePath)
 	_ = os.Remove(legacyPath)
 	return nil
 }
@@ -261,12 +289,14 @@ func saveSnapshot(base string, snapshot *vfs.Snapshot, format vfs.StateFormat) e
 func loadSnapshot(base string, registry *vfs.Registry) (*vfs.Snapshot, time.Duration, time.Duration, error) {
 	metaPathGob, cachePathGob, legacyGob := statePaths(base, vfs.StateFormatGob)
 	metaPathJSON, cachePathJSON, legacyJSON := statePaths(base, vfs.StateFormatJSON)
-	metaPath, cachePath := "", ""
+	_ = cachePathGob
+	_ = cachePathJSON
+	metaPath := ""
 	switch {
-	case fileExists(metaPathGob) && fileExists(cachePathGob):
-		metaPath, cachePath = metaPathGob, cachePathGob
-	case fileExists(metaPathJSON) && fileExists(cachePathJSON):
-		metaPath, cachePath = metaPathJSON, cachePathJSON
+	case fileExists(metaPathGob):
+		metaPath = metaPathGob
+	case fileExists(metaPathJSON):
+		metaPath = metaPathJSON
 	default:
 		legacyPath := legacyGob
 		if !fileExists(legacyPath) {
@@ -291,10 +321,40 @@ func loadSnapshot(base string, registry *vfs.Registry) (*vfs.Snapshot, time.Dura
 	if metaResult.err != nil {
 		return nil, metaResult.duration, 0, metaResult.err
 	}
-	snapshot := metaResult.snapshot.AttachCacheLoader(func() (*vfs.Cache, error) {
-		return loadCachePayload(cachePath)
-	})
+	loaders := make(map[string]func() (*vfs.Cache, error))
+	if metaResult.snapshot != nil {
+		parserVersions := metaResult.snapshot.ParserVersions()
+		keys := make([]string, 0, len(parserVersions))
+		for key := range parserVersions {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			version := parserVersions[key]
+			parser, ok := registry.Parser(key)
+			if !ok || parser.CacheVersion() != version {
+				continue
+			}
+			cacheFilePath := parserCachePath(base, key, detectFormatFromPath(metaPath))
+			if !fileExists(cacheFilePath) {
+				continue
+			}
+			parserKey := key
+			parserCachePath := cacheFilePath
+			loaders[parserKey] = func() (*vfs.Cache, error) {
+				return loadCachePayload(parserCachePath)
+			}
+		}
+	}
+	snapshot := metaResult.snapshot.AttachParserCacheLoaders(loaders)
 	return snapshot, metaResult.duration, 0, nil
+}
+
+func detectFormatFromPath(path string) vfs.StateFormat {
+	if strings.HasSuffix(path, ".json") {
+		return vfs.StateFormatJSON
+	}
+	return vfs.StateFormatGob
 }
 
 func loadLegacySnapshot(path string, registry *vfs.Registry) (*vfs.Snapshot, error) {

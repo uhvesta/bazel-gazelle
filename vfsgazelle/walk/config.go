@@ -205,6 +205,10 @@ func loadRepoDirectoryIgnore(repoRoot string) ([]string, error) {
 	if err != nil {
 		return nil, fmt.Errorf("REPO.bazel exists but couldn't be read: %v", err)
 	}
+	return loadRepoDirectoryIgnoreFromData(repoRoot, repoFileContent)
+}
+
+func loadRepoDirectoryIgnoreFromData(repoRoot string, repoFileContent []byte) ([]string, error) {
 	ast, err := bzl.Parse(repoRoot, repoFileContent)
 	if err != nil {
 		return nil, fmt.Errorf("failed to parse REPO.bazel: %v", err)
