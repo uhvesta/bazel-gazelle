@@ -6,11 +6,13 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
-	"io/fs"
 	"os"
 	"path"
 	"path/filepath"
 	"sort"
+	"strings"
+
+	"github.com/uhvesta/bazel-gazelle/config"
 )
 
 // StateFormat names the on-disk encoding used for persisted vfsgazelle state.
@@ -26,6 +28,10 @@ const (
 	stateMagicJSON    = "GZVFSJN1\n"
 	oldStateMagicGob  = "GZV3GOB1\n"
 	oldStateMagicJSON = "GZV3JSN1\n"
+	metaMagicGob      = "GZVFSMG1\n"
+	metaMagicJSON     = "GZVFSMJ1\n"
+	cacheMagicGob     = "GZVFSKG1\n"
+	cacheMagicJSON    = "GZVFSKJ1\n"
 )
 
 // ChangeKind describes the kind of filesystem change being patched.
@@ -43,9 +49,10 @@ type Change struct {
 }
 
 type persistedMetadata struct {
-	Root  string              `json:"root"`
-	Files []File              `json:"files"`
-	Dirs  map[string][]string `json:"dirs"`
+	Root                string              `json:"root"`
+	ValidBuildFileNames []string            `json:"validBuildFileNames,omitempty"`
+	Files               []File              `json:"files"`
+	Dirs                map[string][]string `json:"dirs"`
 }
 
 type persistedState struct {
@@ -65,6 +72,79 @@ var alwaysPersistContent = map[string]bool{
 func (s *Snapshot) Save(w io.Writer, format StateFormat) error {
 	if s == nil {
 		return fmt.Errorf("nil snapshot")
+	}
+	metadata, err := s.persistedMetadata()
+	if err != nil {
+		return err
+	}
+	persisted := persistedState{
+		Metadata: metadata,
+		Cache:    s.cache.Snapshot(),
+	}
+	switch format {
+	case "", StateFormatGob:
+		if _, err := io.WriteString(w, stateMagicGob); err != nil {
+			return err
+		}
+		return gob.NewEncoder(w).Encode(persisted)
+	case StateFormatJSON:
+		if _, err := io.WriteString(w, stateMagicJSON); err != nil {
+			return err
+		}
+		return json.NewEncoder(w).Encode(persisted)
+	default:
+		return fmt.Errorf("unknown state format %q", format)
+	}
+}
+
+// SaveMetadata writes only the snapshot metadata needed to reconstruct the
+// tree, file hashes, and direct-read file contents.
+func (s *Snapshot) SaveMetadata(w io.Writer, format StateFormat) error {
+	metadata, err := s.persistedMetadata()
+	if err != nil {
+		return err
+	}
+	switch format {
+	case "", StateFormatGob:
+		if _, err := io.WriteString(w, metaMagicGob); err != nil {
+			return err
+		}
+		return gob.NewEncoder(w).Encode(metadata)
+	case StateFormatJSON:
+		if _, err := io.WriteString(w, metaMagicJSON); err != nil {
+			return err
+		}
+		return json.NewEncoder(w).Encode(metadata)
+	default:
+		return fmt.Errorf("unknown state format %q", format)
+	}
+}
+
+// SaveCache writes only the parser-cache payload for a snapshot.
+func (s *Snapshot) SaveCache(w io.Writer, format StateFormat) error {
+	if s == nil || s.cache == nil {
+		return fmt.Errorf("nil snapshot cache")
+	}
+	persisted := s.cache.Snapshot()
+	switch format {
+	case "", StateFormatGob:
+		if _, err := io.WriteString(w, cacheMagicGob); err != nil {
+			return err
+		}
+		return gob.NewEncoder(w).Encode(persisted)
+	case StateFormatJSON:
+		if _, err := io.WriteString(w, cacheMagicJSON); err != nil {
+			return err
+		}
+		return json.NewEncoder(w).Encode(persisted)
+	default:
+		return fmt.Errorf("unknown state format %q", format)
+	}
+}
+
+func (s *Snapshot) persistedMetadata() (persistedMetadata, error) {
+	if s == nil {
+		return persistedMetadata{}, fmt.Errorf("nil snapshot")
 	}
 	files := make([]File, 0, len(s.filePaths()))
 	for _, filePath := range s.filePaths() {
@@ -92,29 +172,12 @@ func (s *Snapshot) Save(w io.Writer, format StateFormat) error {
 		}
 		dirs[dir] = append([]string(nil), entries...)
 	}
-
-	persisted := persistedState{
-		Metadata: persistedMetadata{
-			Root:  s.Root,
-			Files: files,
-			Dirs:  dirs,
-		},
-		Cache: s.cache.Snapshot(),
-	}
-	switch format {
-	case "", StateFormatGob:
-		if _, err := io.WriteString(w, stateMagicGob); err != nil {
-			return err
-		}
-		return gob.NewEncoder(w).Encode(persisted)
-	case StateFormatJSON:
-		if _, err := io.WriteString(w, stateMagicJSON); err != nil {
-			return err
-		}
-		return json.NewEncoder(w).Encode(persisted)
-	default:
-		return fmt.Errorf("unknown state format %q", format)
-	}
+	return persistedMetadata{
+		Root:                s.Root,
+		ValidBuildFileNames: append([]string(nil), s.validBuildFileNames...),
+		Files:               files,
+		Dirs:                dirs,
+	}, nil
 }
 
 func (s *Snapshot) shouldPersistContent(rel string) bool {
@@ -171,27 +234,83 @@ func LoadSnapshot(r io.Reader, registry *Registry) (*Snapshot, error) {
 		key := cacheKey{Path: entry.Path, ParserKey: entry.ParserKey}
 		cacheEntries[key] = cloneEntry(entry)
 	}
-	files := make(map[string]File, len(persisted.Metadata.Files))
-	for _, file := range persisted.Metadata.Files {
-		files[file.Path] = File{
-			Path:    file.Path,
-			Content: append([]byte(nil), file.Content...),
-			Hash:    file.Hash,
+	return snapshotFromMetadata(persisted.Metadata, registry, &Cache{entries: cacheEntries}), nil
+}
+
+// LoadSnapshotMetadata decodes only snapshot metadata.
+func LoadSnapshotMetadata(r io.Reader, registry *Registry) (*Snapshot, error) {
+	br := bufio.NewReader(r)
+	format, err := detectMetadataFormat(br)
+	if err != nil {
+		return nil, err
+	}
+	var metadata persistedMetadata
+	switch format {
+	case StateFormatGob:
+		if _, err := br.Discard(len(metaMagicGob)); err != nil {
+			return nil, err
 		}
+		if err := gob.NewDecoder(br).Decode(&metadata); err != nil {
+			return nil, err
+		}
+	case StateFormatJSON:
+		if _, err := br.Discard(len(metaMagicJSON)); err != nil {
+			return nil, err
+		}
+		if err := json.NewDecoder(br).Decode(&metadata); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unknown metadata format %q", format)
 	}
-	dirs := make(map[string][]string, len(persisted.Metadata.Dirs))
-	for dir, entries := range persisted.Metadata.Dirs {
-		dirs[cleanRepoPath(dir)] = append([]string(nil), entries...)
+	return snapshotFromMetadata(metadata, registry, &Cache{entries: make(map[cacheKey]Entry)}), nil
+}
+
+// LoadCachePayload decodes only persisted parser-cache entries.
+func LoadCachePayload(r io.Reader) (*Cache, error) {
+	br := bufio.NewReader(r)
+	format, err := detectCacheFormat(br)
+	if err != nil {
+		return nil, err
 	}
-	return &Snapshot{
-		Root:         persisted.Metadata.Root,
-		cache:        &Cache{entries: cacheEntries},
-		registry:     registry,
-		files:        files,
-		deletedFiles: make(map[string]struct{}),
-		dirs:         dirs,
-		deletedDirs:  make(map[string]struct{}),
-	}, nil
+	var persisted Persisted
+	switch format {
+	case StateFormatGob:
+		if _, err := br.Discard(len(cacheMagicGob)); err != nil {
+			return nil, err
+		}
+		if err := gob.NewDecoder(br).Decode(&persisted); err != nil {
+			return nil, err
+		}
+	case StateFormatJSON:
+		if _, err := br.Discard(len(cacheMagicJSON)); err != nil {
+			return nil, err
+		}
+		if err := json.NewDecoder(br).Decode(&persisted); err != nil {
+			return nil, err
+		}
+	default:
+		return nil, fmt.Errorf("unknown cache format %q", format)
+	}
+	cacheEntries := make(map[cacheKey]Entry, len(persisted.Entries))
+	for _, entry := range persisted.Entries {
+		key := cacheKey{Path: entry.Path, ParserKey: entry.ParserKey}
+		cacheEntries[key] = cloneEntry(entry)
+	}
+	return &Cache{entries: cacheEntries}, nil
+}
+
+// AttachCache returns a shallow copy of snapshot with cache installed.
+func (s *Snapshot) AttachCache(cache *Cache) *Snapshot {
+	if s == nil {
+		return nil
+	}
+	if cache == nil {
+		cache = &Cache{entries: make(map[cacheKey]Entry)}
+	}
+	out := *s
+	out.cache = cache
+	return &out
 }
 
 func detectStateFormat(r *bufio.Reader) (StateFormat, error) {
@@ -221,9 +340,61 @@ func detectStateFormat(r *bufio.Reader) (StateFormat, error) {
 	return StateFormatGob, nil
 }
 
+func detectMetadataFormat(r *bufio.Reader) (StateFormat, error) {
+	if hasStateMagic(r, metaMagicGob) {
+		return StateFormatGob, nil
+	}
+	if hasStateMagic(r, metaMagicJSON) {
+		return StateFormatJSON, nil
+	}
+	return "", fmt.Errorf("unknown metadata state format")
+}
+
+func detectCacheFormat(r *bufio.Reader) (StateFormat, error) {
+	if hasStateMagic(r, cacheMagicGob) {
+		return StateFormatGob, nil
+	}
+	if hasStateMagic(r, cacheMagicJSON) {
+		return StateFormatJSON, nil
+	}
+	return "", fmt.Errorf("unknown cache state format")
+}
+
 func hasStateMagic(r *bufio.Reader, magic string) bool {
 	b, err := r.Peek(len(magic))
 	return err == nil && string(b) == magic
+}
+
+func snapshotFromMetadata(metadata persistedMetadata, registry *Registry, cache *Cache) *Snapshot {
+	files := make(map[string]File, len(metadata.Files))
+	for _, file := range metadata.Files {
+		files[file.Path] = File{
+			Path:    file.Path,
+			Content: append([]byte(nil), file.Content...),
+			Hash:    file.Hash,
+		}
+	}
+	dirs := make(map[string][]string, len(metadata.Dirs))
+	for dir, entries := range metadata.Dirs {
+		dirs[cleanRepoPath(dir)] = append([]string(nil), entries...)
+	}
+	if cache == nil {
+		cache = &Cache{entries: make(map[cacheKey]Entry)}
+	}
+	validBuildFileNames := append([]string(nil), metadata.ValidBuildFileNames...)
+	if len(validBuildFileNames) == 0 {
+		validBuildFileNames = append([]string(nil), config.DefaultValidBuildFileNames...)
+	}
+	return &Snapshot{
+		Root:                metadata.Root,
+		cache:               cache,
+		registry:            registry,
+		validBuildFileNames: validBuildFileNames,
+		files:               files,
+		deletedFiles:        make(map[string]struct{}),
+		dirs:                dirs,
+		deletedDirs:         make(map[string]struct{}),
+	}
 }
 
 // Patch applies a changed-path set to a prior frozen snapshot and returns a
@@ -237,14 +408,18 @@ func Patch(root string, prev *Snapshot, opts BuildOptions, changes []Change) (*B
 		return Build(root, opts)
 	}
 	s := &BuildSnapshot{
-		Root:         root,
-		builder:      NewCacheBuilder(prev.cache),
-		registry:     opts.Registry,
-		base:         prev,
-		files:        make(map[string]File),
-		deletedFiles: make(map[string]struct{}),
-		dirs:         make(map[string][]string),
-		deletedDirs:  make(map[string]struct{}),
+		Root:                root,
+		builder:             NewCacheBuilder(prev.cache),
+		registry:            opts.Registry,
+		validBuildFileNames: append([]string(nil), prev.validBuildFileNames...),
+		base:                prev,
+		files:               make(map[string]File),
+		deletedFiles:        make(map[string]struct{}),
+		dirs:                make(map[string][]string),
+		deletedDirs:         make(map[string]struct{}),
+	}
+	if len(opts.ValidBuildFileNames) > 0 {
+		s.validBuildFileNames = append([]string(nil), opts.ValidBuildFileNames...)
 	}
 
 	normalized := normalizeChanges(changes)
@@ -317,30 +492,23 @@ func applyChange(s *BuildSnapshot, change Change) error {
 }
 
 func addDirTree(s *BuildSnapshot, absDir, relDir string) error {
-	if err := ensureDirPath(s, relDir); err != nil {
+	cfg, err := inheritedTraversalConfig(s, relDir)
+	if err != nil {
 		return err
 	}
-	return filepath.WalkDir(absDir, func(absPath string, d fs.DirEntry, walkErr error) error {
-		if walkErr != nil {
-			return walkErr
-		}
-		if absPath == absDir {
-			return nil
-		}
-		rel, err := filepath.Rel(s.Root, absPath)
-		if err != nil {
-			return err
-		}
-		rel = filepath.ToSlash(rel)
-		if d.IsDir() {
-			return ensureDirPath(s, rel)
-		}
-		if !d.Type().IsRegular() {
-			return nil
-		}
-		_, err = upsertFileFromDisk(s, absPath, rel)
+	result, err := buildTree(s.Root, relDir, cfg)
+	if err != nil {
 		return err
-	})
+	}
+	for dir, entries := range result.dirs {
+		s.dirs[dir] = append([]string(nil), entries...)
+		delete(s.deletedDirs, dir)
+	}
+	for filePath, file := range result.files {
+		s.files[filePath] = file
+		delete(s.deletedFiles, filePath)
+	}
+	return nil
 }
 
 func upsertFileFromDisk(s *BuildSnapshot, absPath, rel string) (bool, error) {
@@ -465,4 +633,55 @@ func parentDir(rel string) string {
 
 func pathHasPrefix(value, prefix string) bool {
 	return value == prefix || len(prefix) > 0 && len(value) > len(prefix) && value[:len(prefix)] == prefix && value[len(prefix)] == '/'
+}
+
+func inheritedTraversalConfig(s *BuildSnapshot, rel string) (*traversalConfig, error) {
+	cfg, err := newTraversalConfig(s.Root, s.validBuildFileNames)
+	if err != nil {
+		return nil, err
+	}
+	cur := ""
+	for _, part := range strings.Split(cleanRepoPath(rel), "/") {
+		if part == "" {
+			continue
+		}
+		if err := applyTraversalConfigForDir(s, cfg, cur); err != nil {
+			return nil, err
+		}
+		cur = cleanRepoPath(path.Join(cur, part))
+	}
+	return cfg, nil
+}
+
+func applyTraversalConfigForDir(s *BuildSnapshot, cfg *traversalConfig, rel string) error {
+	entries, ok := s.lookupDir(rel)
+	if !ok {
+		return nil
+	}
+	buildName := ""
+	for _, candidate := range cfg.validBuildFileNames {
+		for _, entry := range entries {
+			if entry == candidate {
+				buildName = candidate
+				break
+			}
+		}
+		if buildName != "" {
+			break
+		}
+	}
+	if buildName == "" {
+		return nil
+	}
+	buildRel := cleanRepoPath(path.Join(rel, buildName))
+	buildFile, ok := s.lookupFile(buildRel)
+	if !ok {
+		return nil
+	}
+	directives, err := parseBuildDirectives(s.Root, rel, buildRel, buildFile.Content)
+	if err != nil {
+		return err
+	}
+	applyTraversalDirectives(cfg, rel, buildRel, directives)
+	return nil
 }

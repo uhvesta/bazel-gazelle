@@ -35,16 +35,12 @@ func TestSaveLoadSnapshot(t *testing.T) {
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
-			ext := ".gob"
-			if tc.format == vfs.StateFormatJSON {
-				ext = ".json"
-			}
-			path := filepath.Join(t.TempDir(), "state"+ext)
-			if err := saveSnapshot(path, snapshot, tc.format); err != nil {
+			base := filepath.Join(t.TempDir(), "state")
+			if err := saveSnapshot(base, snapshot, tc.format); err != nil {
 				t.Fatal(err)
 			}
 
-			loaded, err := loadSnapshot(path, registry)
+			loaded, _, _, err := loadSnapshot(base, registry)
 			if err != nil {
 				t.Fatal(err)
 			}

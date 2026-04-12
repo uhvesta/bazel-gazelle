@@ -95,9 +95,16 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 			return err
 		}
 		loadStart := time.Now()
-		snapshot, err = loadSnapshot(statePath(cfg.RepoRoot, vfs.StateFormat(stateFormat)), registry)
+		var metadataLoad, cacheLoad time.Duration
+		snapshot, metadataLoad, cacheLoad, err = loadSnapshot(stateBasePath(cfg.RepoRoot, vfs.StateFormat(stateFormat)), registry)
 		timingOffset = time.Since(loadStart)
 		if timings {
+			if metadataLoad > 0 {
+				log.Printf("timing %-16s %s", "read_vfs_meta", metadataLoad)
+			}
+			if cacheLoad > 0 {
+				log.Printf("timing %-16s %s", "read_vfs_cache", cacheLoad)
+			}
 			log.Printf("timing %-16s %s", "read_vfs_from_cache", timingOffset)
 		}
 		if err != nil {
@@ -131,7 +138,7 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 	if err != nil {
 		return err
 	}
-	return saveSnapshot(statePath(cfg.RepoRoot, vfs.StateFormat(stateFormat)), result.Snapshot, vfs.StateFormat(stateFormat))
+	return saveSnapshot(stateBasePath(cfg.RepoRoot, vfs.StateFormat(stateFormat)), result.Snapshot, vfs.StateFormat(stateFormat))
 }
 
 func makeConfigurers(langs []vfsgazellelanguage.Language) []config.Configurer {
@@ -197,55 +204,162 @@ func (cmd command) String() string {
 	}
 }
 
-func statePath(repoRoot string, format vfs.StateFormat) string {
+func stateBasePath(repoRoot string, format vfs.StateFormat) string {
 	cacheDir, err := os.UserCacheDir()
+	if err != nil {
+		return filepath.Join(repoRoot, ".gazelle-vfsgazelle-state")
+	}
+	sum := sha256.Sum256([]byte(repoRoot))
+	return filepath.Join(cacheDir, "bazel-gazelle", "vfsgazelle", fmt.Sprintf("%x", sum[:8]))
+}
+
+func statePaths(base string, format vfs.StateFormat) (string, string, string) {
 	ext := ".gob"
 	if format == vfs.StateFormatJSON {
 		ext = ".json"
 	}
-	if err != nil {
-		return filepath.Join(repoRoot, ".gazelle-vfsgazelle-state"+ext)
-	}
-	sum := sha256.Sum256([]byte(repoRoot))
-	return filepath.Join(cacheDir, "bazel-gazelle", "vfsgazelle", fmt.Sprintf("%x%s", sum[:8], ext))
+	return base + ".meta" + ext, base + ".cache" + ext, base + ext
 }
 
-func saveSnapshot(path string, snapshot *vfs.Snapshot, format vfs.StateFormat) error {
+func saveSnapshot(base string, snapshot *vfs.Snapshot, format vfs.StateFormat) error {
 	if snapshot == nil {
 		return nil
 	}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+	metaPath, cachePath, legacyPath := statePaths(base, format)
+	if err := os.MkdirAll(filepath.Dir(metaPath), 0o755); err != nil {
 		return err
 	}
-	f, err := os.Create(path)
+	metaFile, err := os.Create(metaPath)
 	if err != nil {
 		return err
 	}
-	defer f.Close()
-	return snapshot.Save(f, format)
+	defer metaFile.Close()
+	if err := snapshot.SaveMetadata(metaFile, format); err != nil {
+		return err
+	}
+	cacheFile, err := os.Create(cachePath)
+	if err != nil {
+		return err
+	}
+	defer cacheFile.Close()
+	if err := snapshot.SaveCache(cacheFile, format); err != nil {
+		return err
+	}
+	_ = os.Remove(legacyPath)
+	return nil
 }
 
-func loadSnapshot(path string, registry *vfs.Registry) (*vfs.Snapshot, error) {
-	f, err := os.Open(path)
+func loadSnapshot(base string, registry *vfs.Registry) (*vfs.Snapshot, time.Duration, time.Duration, error) {
+	metaPathGob, cachePathGob, legacyGob := statePaths(base, vfs.StateFormatGob)
+	metaPathJSON, cachePathJSON, legacyJSON := statePaths(base, vfs.StateFormatJSON)
+	metaPath, cachePath := "", ""
+	switch {
+	case fileExists(metaPathGob) && fileExists(cachePathGob):
+		metaPath, cachePath = metaPathGob, cachePathGob
+	case fileExists(metaPathJSON) && fileExists(cachePathJSON):
+		metaPath, cachePath = metaPathJSON, cachePathJSON
+	default:
+		legacyPath := legacyGob
+		if !fileExists(legacyPath) {
+			legacyPath = legacyJSON
+		}
+		snapshot, err := loadLegacySnapshot(legacyPath, registry)
+		return snapshot, 0, 0, err
+	}
+
+	type loadResult struct {
+		snapshot *vfs.Snapshot
+		cache    *vfs.Cache
+		duration time.Duration
+		err      error
+	}
+	metaCh := make(chan loadResult, 1)
+	cacheCh := make(chan loadResult, 1)
+	go func() {
+		start := time.Now()
+		snapshot, err := loadMetadataSnapshot(metaPath, registry)
+		metaCh <- loadResult{snapshot: snapshot, duration: time.Since(start), err: err}
+	}()
+	go func() {
+		start := time.Now()
+		cache, err := loadCachePayload(cachePath)
+		cacheCh <- loadResult{cache: cache, duration: time.Since(start), err: err}
+	}()
+	metaResult := <-metaCh
+	if metaResult.err != nil {
+		return nil, metaResult.duration, 0, metaResult.err
+	}
+	cacheResult := <-cacheCh
+	if cacheResult.err != nil {
+		return nil, metaResult.duration, cacheResult.duration, cacheResult.err
+	}
+	return metaResult.snapshot.AttachCache(cacheResult.cache), metaResult.duration, cacheResult.duration, nil
+}
+
+func loadLegacySnapshot(path string, registry *vfs.Registry) (*vfs.Snapshot, error) {
+	if path == "" {
+		return nil, os.ErrNotExist
+	}
+	reader, closeFn, err := openStateReader(path)
 	if err != nil {
 		return nil, err
 	}
-	defer f.Close()
+	defer closeFn()
+	return vfs.LoadSnapshot(reader, registry)
+}
+
+func loadMetadataSnapshot(path string, registry *vfs.Registry) (*vfs.Snapshot, error) {
+	reader, closeFn, err := openStateReader(path)
+	if err != nil {
+		return nil, err
+	}
+	defer closeFn()
+	return vfs.LoadSnapshotMetadata(reader, registry)
+}
+
+func loadCachePayload(path string) (*vfs.Cache, error) {
+	reader, closeFn, err := openStateReader(path)
+	if err != nil {
+		return nil, err
+	}
+	defer closeFn()
+	return vfs.LoadCachePayload(reader)
+}
+
+func openStateReader(path string) (io.Reader, func() error, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, nil, err
+	}
 	r := bufio.NewReader(f)
 	magic, err := r.Peek(2)
 	if err != nil && !errors.Is(err, io.EOF) {
-		return nil, err
+		_ = f.Close()
+		return nil, nil, err
 	}
 	var reader io.Reader = r
+	closeFn := f.Close
 	if len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
 		zr, err := gzip.NewReader(r)
 		if err != nil {
-			return nil, err
+			_ = f.Close()
+			return nil, nil, err
 		}
-		defer zr.Close()
 		reader = zr
+		closeFn = func() error {
+			if err := zr.Close(); err != nil {
+				_ = f.Close()
+				return err
+			}
+			return f.Close()
+		}
 	}
-	return vfs.LoadSnapshot(reader, registry)
+	return reader, closeFn, nil
+}
+
+func fileExists(path string) bool {
+	_, err := os.Stat(path)
+	return err == nil
 }
 
 func changesFromArgs(args []string) []vfs.Change {

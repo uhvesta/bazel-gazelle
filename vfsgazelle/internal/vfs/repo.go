@@ -97,27 +97,29 @@ func (r *Registry) Match(path string) []Parser {
 // Once parsing is complete, Freeze produces a read-only Snapshot and consumes
 // the mutable maps instead of cloning them.
 type BuildSnapshot struct {
-	Root         string
-	builder      *CacheBuilder
-	registry     *Registry
-	base         *Snapshot
-	files        map[string]File
-	deletedFiles map[string]struct{}
-	dirs         map[string][]string
-	deletedDirs  map[string]struct{}
-	changed      bool
+	Root                string
+	builder             *CacheBuilder
+	registry            *Registry
+	validBuildFileNames []string
+	base                *Snapshot
+	files               map[string]File
+	deletedFiles        map[string]struct{}
+	dirs                map[string][]string
+	deletedDirs         map[string]struct{}
+	changed             bool
 }
 
 // Snapshot is the frozen read-only view of the repo and parsed-model cache.
 type Snapshot struct {
-	Root         string
-	cache        *Cache
-	registry     *Registry
-	base         *Snapshot
-	files        map[string]File
-	deletedFiles map[string]struct{}
-	dirs         map[string][]string
-	deletedDirs  map[string]struct{}
+	Root                string
+	cache               *Cache
+	registry            *Registry
+	validBuildFileNames []string
+	base                *Snapshot
+	files               map[string]File
+	deletedFiles        map[string]struct{}
+	dirs                map[string][]string
+	deletedDirs         map[string]struct{}
 }
 
 // File describes one file stored in a snapshot.
@@ -191,13 +193,14 @@ func Build(root string, opts BuildOptions) (*BuildSnapshot, error) {
 	}
 
 	s := &BuildSnapshot{
-		Root:         root,
-		builder:      NewCacheBuilder(opts.Cache),
-		registry:     opts.Registry,
-		files:        make(map[string]File),
-		deletedFiles: make(map[string]struct{}),
-		dirs:         make(map[string][]string),
-		deletedDirs:  make(map[string]struct{}),
+		Root:                root,
+		builder:             NewCacheBuilder(opts.Cache),
+		registry:            opts.Registry,
+		validBuildFileNames: append([]string(nil), opts.ValidBuildFileNames...),
+		files:               make(map[string]File),
+		deletedFiles:        make(map[string]struct{}),
+		dirs:                make(map[string][]string),
+		deletedDirs:         make(map[string]struct{}),
 	}
 	s.dirs[""] = nil
 
@@ -679,14 +682,15 @@ func (s *BuildSnapshot) Freeze() *Snapshot {
 	s.files = nil
 	s.dirs = nil
 	return &Snapshot{
-		Root:         s.Root,
-		cache:        cache,
-		registry:     s.registry,
-		base:         s.base,
-		files:        files,
-		deletedFiles: s.deletedFiles,
-		dirs:         dirs,
-		deletedDirs:  s.deletedDirs,
+		Root:                s.Root,
+		cache:               cache,
+		registry:            s.registry,
+		validBuildFileNames: append([]string(nil), s.validBuildFileNames...),
+		base:                s.base,
+		files:               files,
+		deletedFiles:        s.deletedFiles,
+		dirs:                dirs,
+		deletedDirs:         s.deletedDirs,
 	}
 }
 
