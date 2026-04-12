@@ -13,7 +13,7 @@ func TestRegisterParsers(t *testing.T) {
 		t.Fatal(err)
 	}
 	parsers := reg.Match("foo.go")
-	if len(parsers) != 1 || parsers[0].Key() != "go/fileinfo-lite" {
+	if len(parsers) != 1 || parsers[0].Key() != "go/fileinfo" {
 		t.Fatalf("got parsers %#v", parsers)
 	}
 }

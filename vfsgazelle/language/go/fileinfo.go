@@ -340,6 +340,21 @@ func goFileInfo(path, srcdir string) fileInfo {
 	return info
 }
 
+func fileInfoFromParsedGoFile(path string, model goParsedFile) fileInfo {
+	info := fileNameInfo(path)
+	info.packageName = model.Package
+	info.imports = append(info.imports, model.Imports...)
+	info.isExternalTest = model.IsExternalTest
+	info.isCgo = model.IsCgo
+	info.hasMainFunction = model.HasMainFunction
+	info.embeds = append(info.embeds, model.Embeds...)
+	tags, err := deserializeBuildTags(model.Tags)
+	if err == nil {
+		info.tags = tags
+	}
+	return info
+}
+
 // saveCgo extracts CFLAGS, CPPFLAGS, CXXFLAGS, and LDFLAGS directives
 // from a comment above a "C" import. This is intended to match logic in
 // go/build.Context.saveCgo.

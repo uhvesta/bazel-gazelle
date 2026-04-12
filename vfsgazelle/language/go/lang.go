@@ -55,8 +55,10 @@ package golang
 
 import (
 	"encoding/json"
+	"go/ast"
 	"go/parser"
 	"go/token"
+	"path/filepath"
 	"strings"
 
 	"golang.org/x/mod/modfile"
@@ -102,23 +104,89 @@ func (gl *goLang) ConfigureRepo(c *config.Config, repo *vfs.Snapshot, rel string
 }
 
 type goParsedFile struct {
-	Package string   `json:"package"`
-	Imports []string `json:"imports"`
+	Package         string               `json:"package"`
+	Imports         []string             `json:"imports"`
+	IsExternalTest  bool                 `json:"is_external_test,omitempty"`
+	IsCgo           bool                 `json:"is_cgo,omitempty"`
+	HasMainFunction bool                 `json:"has_main_function,omitempty"`
+	Embeds          []fileEmbed          `json:"embeds,omitempty"`
+	Tags            *serializedBuildTags `json:"tags,omitempty"`
 }
 
 type goFileParser struct{}
 
-func (goFileParser) Key() string          { return "go/fileinfo-lite" }
-func (goFileParser) CacheVersion() string { return "v1" }
+func (goFileParser) Key() string          { return "go/fileinfo" }
+func (goFileParser) CacheVersion() string { return "v2" }
 func (goFileParser) Parse(path string, data []byte) (any, error) {
+	info := fileNameInfo(filepath.ToSlash(path))
 	fset := token.NewFileSet()
-	file, err := parser.ParseFile(fset, path, data, parser.ImportsOnly)
+	file, err := parser.ParseFile(fset, path, data, parser.ImportsOnly|parser.ParseComments)
 	if err != nil {
 		return goParsedFile{}, nil
 	}
+
 	model := goParsedFile{Package: file.Name.Name}
-	for _, imp := range file.Imports {
-		model.Imports = append(model.Imports, strings.Trim(imp.Path.Value, `"`))
+	if info.isTest && strings.HasSuffix(model.Package, "_test") {
+		model.Package = model.Package[:len(model.Package)-len("_test")]
+		model.IsExternalTest = true
+	}
+
+	importsEmbed := false
+	for _, decl := range file.Decls {
+		d, ok := decl.(*ast.GenDecl)
+		if !ok {
+			continue
+		}
+		for _, dspec := range d.Specs {
+			spec, ok := dspec.(*ast.ImportSpec)
+			if !ok {
+				continue
+			}
+			importPath := strings.Trim(spec.Path.Value, `"`)
+			if importPath == "C" {
+				model.IsCgo = true
+				continue
+			}
+			if importPath == "embed" {
+				importsEmbed = true
+			}
+			model.Imports = append(model.Imports, importPath)
+		}
+	}
+
+	tags, err := serializeBuildTagsData(data)
+	if err != nil {
+		return model, nil
+	}
+	model.Tags = tags
+
+	if importsEmbed || model.Package == "main" {
+		file, err = parser.ParseFile(fset, path, data, parser.ParseComments)
+		if err != nil {
+			return model, nil
+		}
+		for _, cg := range file.Comments {
+			for _, c := range cg.List {
+				if !strings.HasPrefix(c.Text, "//go:embed") {
+					continue
+				}
+				args := strings.TrimSpace(strings.TrimPrefix(c.Text, "//go:embed"))
+				pos := fset.Position(c.Pos())
+				embeds, err := parseGoEmbed(args, pos)
+				if err != nil {
+					continue
+				}
+				model.Embeds = append(model.Embeds, embeds...)
+			}
+		}
+		if model.Package == "main" {
+			for _, decl := range file.Decls {
+				if fdecl, ok := decl.(*ast.FuncDecl); ok && fdecl.Name.Name == "main" {
+					model.HasMainFunction = true
+					break
+				}
+			}
+		}
 	}
 	return model, nil
 }

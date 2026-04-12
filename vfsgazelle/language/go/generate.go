@@ -155,8 +155,17 @@ func (gl *goLang) GenerateRules(args v3language.GenerateArgs) v3language.Generat
 		goFileInfos := make([]fileInfo, len(goFiles))
 		var er *embedResolver
 		for i, name := range goFiles {
-			path := filepath.Join(args.Dir, name)
-			goFileInfos[i] = goFileInfo(path, srcdir)
+			absPath := filepath.Join(args.Dir, name)
+			relPath := path.Join(args.Rel, name)
+			if result, err := args.Repo.GetModel(relPath, "go/fileinfo"); err == nil {
+				if model, ok := result.Model.(goParsedFile); ok && !model.IsCgo {
+					goFileInfos[i] = fileInfoFromParsedGoFile(absPath, model)
+				} else {
+					goFileInfos[i] = goFileInfo(absPath, srcdir)
+				}
+			} else {
+				goFileInfos[i] = goFileInfo(absPath, srcdir)
+			}
 			if len(goFileInfos[i].embeds) > 0 && er == nil {
 				er = newEmbedResolver(args.Dir, args.Rel, c.ValidBuildFileNames, gl.goPkgRels, subdirs, regularFiles, args.GenFiles)
 			}

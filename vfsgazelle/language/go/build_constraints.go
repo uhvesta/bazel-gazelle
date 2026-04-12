@@ -40,6 +40,18 @@ func readTags(path string) (*buildTags, error) {
 		return nil, err
 	}
 
+	return readTagsContent(content)
+}
+
+func readTagsData(data []byte) (*buildTags, error) {
+	content, err := readComments(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	return readTagsContent(content)
+}
+
+func readTagsContent(content []byte) (*buildTags, error) {
 	content, goBuild, _, err := parseFileHeader(content)
 	if err != nil {
 		return nil, err
@@ -54,6 +66,57 @@ func readTags(path string) (*buildTags, error) {
 		return newBuildTags(x), nil
 	}
 
+	return readPlusBuildTags(content)
+}
+
+func serializeBuildTagsData(data []byte) (*serializedBuildTags, error) {
+	content, err := readComments(bytes.NewReader(data))
+	if err != nil {
+		return nil, err
+	}
+	content, goBuild, _, err := parseFileHeader(content)
+	if err != nil {
+		return nil, err
+	}
+	if goBuild != nil {
+		return &serializedBuildTags{GoBuild: string(goBuild)}, nil
+	}
+
+	var plusBuild []string
+	scanner := bufio.NewScanner(bytes.NewReader(content))
+	for scanner.Scan() {
+		line := strings.TrimSpace(scanner.Text())
+		if constraint.IsPlusBuild(line) {
+			plusBuild = append(plusBuild, line)
+		}
+	}
+	if err := scanner.Err(); err != nil {
+		return nil, err
+	}
+	if len(plusBuild) == 0 {
+		return nil, nil
+	}
+	return &serializedBuildTags{PlusBuild: plusBuild}, nil
+}
+
+func deserializeBuildTags(serialized *serializedBuildTags) (*buildTags, error) {
+	if serialized == nil {
+		return nil, nil
+	}
+	if serialized.GoBuild != "" {
+		x, err := constraint.Parse(serialized.GoBuild)
+		if err != nil {
+			return nil, err
+		}
+		return newBuildTags(x), nil
+	}
+	if len(serialized.PlusBuild) == 0 {
+		return nil, nil
+	}
+	return readPlusBuildTags([]byte(strings.Join(serialized.PlusBuild, "\n")))
+}
+
+func readPlusBuildTags(content []byte) (*buildTags, error) {
 	var fullConstraint constraint.Expr
 	// Search and parse +build tags
 	scanner := bufio.NewScanner(bytes.NewReader(content))
@@ -88,6 +151,11 @@ func readTags(path string) (*buildTags, error) {
 	}
 
 	return newBuildTags(fullConstraint), nil
+}
+
+type serializedBuildTags struct {
+	GoBuild   string   `json:"go_build,omitempty"`
+	PlusBuild []string `json:"plus_build,omitempty"`
 }
 
 // buildTags represents the build tags specified in a file.
