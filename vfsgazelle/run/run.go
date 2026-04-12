@@ -125,13 +125,19 @@ func Run(opts Options) (*Result, error) {
 	buildPhaseName := "build_vfs"
 	if opts.Snapshot != nil {
 		buildPhaseName = "patch_vfs"
+		changePhaseStart := time.Now()
 		changes, fullRebuild, err := vfsgazellewalk.PromoteTraversalChanges(opts.Snapshot, opts.Config, opts.Changes)
 		if err != nil {
 			return nil, err
 		}
+		recordPhase("promote_changes", changePhaseStart)
+		changePhaseStart = time.Now()
 		changes = vfsgazellewalk.FilterChanges(opts.Snapshot, opts.Config, changes)
+		recordPhase("filter_changes", changePhaseStart)
 		if len(changes) == 0 {
 			recordPhase(buildPhaseName, phaseStart)
+			recordPhase("prime_parser_scan", time.Now())
+			recordPhase("prime_parser_parse", time.Now())
 			recordPhase("prime_parsers", time.Now())
 			recordPhase("freeze_vfs", time.Now())
 			recordPhase("prepare_run", time.Now())
@@ -145,18 +151,21 @@ func Run(opts Options) (*Result, error) {
 		}
 		if fullRebuild {
 			buildRepo, err = vfs.Build(opts.Config.RepoRoot, vfs.BuildOptions{
-				Cache:    opts.Snapshot.Cache(),
-				Registry: registry,
+				Cache:               opts.Snapshot.Cache(),
+				Registry:            registry,
+				ValidBuildFileNames: opts.Config.ValidBuildFileNames,
 			})
 		} else {
 			buildRepo, err = vfs.Patch(opts.Config.RepoRoot, opts.Snapshot, vfs.BuildOptions{
-				Registry: registry,
+				Registry:            registry,
+				ValidBuildFileNames: opts.Config.ValidBuildFileNames,
 			}, changes)
 		}
 	} else {
 		buildRepo, err = vfs.Build(opts.Config.RepoRoot, vfs.BuildOptions{
-			Cache:    opts.Cache,
-			Registry: registry,
+			Cache:               opts.Cache,
+			Registry:            registry,
+			ValidBuildFileNames: opts.Config.ValidBuildFileNames,
 		})
 	}
 	if err != nil {
@@ -164,6 +173,8 @@ func Run(opts Options) (*Result, error) {
 	}
 	recordPhase(buildPhaseName, phaseStart)
 	if opts.Snapshot != nil && !buildRepo.Changed() {
+		recordPhase("prime_parser_scan", time.Now())
+		recordPhase("prime_parser_parse", time.Now())
 		recordPhase("prime_parsers", time.Now())
 		recordPhase("freeze_vfs", time.Now())
 		recordPhase("prepare_run", time.Now())
@@ -177,8 +188,13 @@ func Run(opts Options) (*Result, error) {
 	}
 
 	phaseStart = time.Now()
-	if err := primeParsers(buildRepo); err != nil {
+	scanDuration, parseDuration, err := primeParsers(buildRepo)
+	if err != nil {
 		return nil, err
+	}
+	if opts.Timings {
+		timings = append(timings, phaseTiming{name: "prime_parser_scan", duration: scanDuration})
+		timings = append(timings, phaseTiming{name: "prime_parser_parse", duration: parseDuration})
 	}
 	recordPhase("prime_parsers", phaseStart)
 
@@ -414,7 +430,7 @@ func initConfigurers(c *config.Config, cexts []config.Configurer) error {
 	return nil
 }
 
-func primeParsers(repo *vfs.BuildSnapshot) error {
+func primeParsers(repo *vfs.BuildSnapshot) (time.Duration, time.Duration, error) {
 	type parseJob struct {
 		file   vfs.File
 		parser vfs.Parser
@@ -424,8 +440,9 @@ func primeParsers(repo *vfs.BuildSnapshot) error {
 		err   error
 	}
 
+	scanStart := time.Now()
 	var jobs []parseJob
-	for _, file := range repo.Files() {
+	err := repo.ForEachFile(func(file vfs.File) error {
 		for _, parser := range repo.MatchingParsers(file.Path) {
 			if file.Content == nil {
 				if _, hit, err := repo.Builder().CheckHash(file.Path, file.Hash, parser); err != nil {
@@ -446,9 +463,14 @@ func primeParsers(repo *vfs.BuildSnapshot) error {
 			}
 			jobs = append(jobs, parseJob{file: file, parser: parser})
 		}
+		return nil
+	})
+	scanDuration := time.Since(scanStart)
+	if err != nil {
+		return scanDuration, 0, err
 	}
 	if len(jobs) == 0 {
-		return nil
+		return scanDuration, 0, nil
 	}
 
 	workerCount := runtime.GOMAXPROCS(0)
@@ -490,6 +512,7 @@ func primeParsers(repo *vfs.BuildSnapshot) error {
 			}
 		}()
 	}
+	parseStart := time.Now()
 	go func() {
 		for _, job := range jobs {
 			jobCh <- job
@@ -501,11 +524,11 @@ func primeParsers(repo *vfs.BuildSnapshot) error {
 
 	for result := range resultCh {
 		if result.err != nil {
-			return result.err
+			return scanDuration, time.Since(parseStart), result.err
 		}
 		repo.Builder().StoreEntry(result.entry)
 	}
-	return nil
+	return scanDuration, time.Since(parseStart), nil
 }
 
 type metaResolver struct {

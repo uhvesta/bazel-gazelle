@@ -42,11 +42,15 @@ type Change struct {
 	Kind ChangeKind `json:"kind"`
 }
 
-type persistedSnapshot struct {
+type persistedMetadata struct {
 	Root  string              `json:"root"`
 	Files []File              `json:"files"`
 	Dirs  map[string][]string `json:"dirs"`
-	Cache Persisted           `json:"cache"`
+}
+
+type persistedState struct {
+	Metadata persistedMetadata `json:"metadata"`
+	Cache    Persisted         `json:"cache"`
 }
 
 var alwaysPersistContent = map[string]bool{
@@ -62,8 +66,12 @@ func (s *Snapshot) Save(w io.Writer, format StateFormat) error {
 	if s == nil {
 		return fmt.Errorf("nil snapshot")
 	}
-	files := make([]File, 0, len(s.files))
-	for _, file := range s.files {
+	files := make([]File, 0, len(s.filePaths()))
+	for _, filePath := range s.filePaths() {
+		file, ok := s.lookupFile(filePath)
+		if !ok {
+			continue
+		}
 		content := file.Content
 		if !s.shouldPersistContent(file.Path) {
 			content = nil
@@ -76,15 +84,21 @@ func (s *Snapshot) Save(w io.Writer, format StateFormat) error {
 	}
 	sort.Slice(files, func(i, j int) bool { return files[i].Path < files[j].Path })
 
-	dirs := make(map[string][]string, len(s.dirs))
-	for dir, entries := range s.dirs {
+	dirs := make(map[string][]string)
+	for _, dir := range s.dirPaths() {
+		entries, ok := s.lookupDir(dir)
+		if !ok {
+			continue
+		}
 		dirs[dir] = append([]string(nil), entries...)
 	}
 
-	persisted := persistedSnapshot{
-		Root:  s.Root,
-		Files: files,
-		Dirs:  dirs,
+	persisted := persistedState{
+		Metadata: persistedMetadata{
+			Root:  s.Root,
+			Files: files,
+			Dirs:  dirs,
+		},
 		Cache: s.cache.Snapshot(),
 	}
 	switch format {
@@ -123,7 +137,7 @@ func LoadSnapshot(r io.Reader, registry *Registry) (*Snapshot, error) {
 	if err != nil {
 		return nil, err
 	}
-	var persisted persistedSnapshot
+	var persisted persistedState
 	switch format {
 	case StateFormatGob:
 		if hasStateMagic(br, oldStateMagicGob) {
@@ -157,24 +171,26 @@ func LoadSnapshot(r io.Reader, registry *Registry) (*Snapshot, error) {
 		key := cacheKey{Path: entry.Path, ParserKey: entry.ParserKey}
 		cacheEntries[key] = cloneEntry(entry)
 	}
-	files := make(map[string]File, len(persisted.Files))
-	for _, file := range persisted.Files {
+	files := make(map[string]File, len(persisted.Metadata.Files))
+	for _, file := range persisted.Metadata.Files {
 		files[file.Path] = File{
 			Path:    file.Path,
 			Content: append([]byte(nil), file.Content...),
 			Hash:    file.Hash,
 		}
 	}
-	dirs := make(map[string][]string, len(persisted.Dirs))
-	for dir, entries := range persisted.Dirs {
+	dirs := make(map[string][]string, len(persisted.Metadata.Dirs))
+	for dir, entries := range persisted.Metadata.Dirs {
 		dirs[cleanRepoPath(dir)] = append([]string(nil), entries...)
 	}
 	return &Snapshot{
-		Root:     persisted.Root,
-		cache:    &Cache{entries: cacheEntries},
-		registry: registry,
-		files:    files,
-		dirs:     dirs,
+		Root:         persisted.Metadata.Root,
+		cache:        &Cache{entries: cacheEntries},
+		registry:     registry,
+		files:        files,
+		deletedFiles: make(map[string]struct{}),
+		dirs:         dirs,
+		deletedDirs:  make(map[string]struct{}),
 	}, nil
 }
 
@@ -221,17 +237,14 @@ func Patch(root string, prev *Snapshot, opts BuildOptions, changes []Change) (*B
 		return Build(root, opts)
 	}
 	s := &BuildSnapshot{
-		Root:     root,
-		builder:  NewCacheBuilder(prev.cache),
-		registry: opts.Registry,
-		files:    make(map[string]File, len(prev.files)),
-		dirs:     make(map[string][]string, len(prev.dirs)),
-	}
-	for key, file := range prev.files {
-		s.files[key] = file
-	}
-	for dir, entries := range prev.dirs {
-		s.dirs[dir] = entries
+		Root:         root,
+		builder:      NewCacheBuilder(prev.cache),
+		registry:     opts.Registry,
+		base:         prev,
+		files:        make(map[string]File),
+		deletedFiles: make(map[string]struct{}),
+		dirs:         make(map[string][]string),
+		deletedDirs:  make(map[string]struct{}),
 	}
 
 	normalized := normalizeChanges(changes)
@@ -336,7 +349,7 @@ func upsertFileFromDisk(s *BuildSnapshot, absPath, rel string) (bool, error) {
 		return false, err
 	}
 	hash := digest(content)
-	if existing, ok := s.files[rel]; ok && existing.Hash == hash {
+	if existing, ok := s.lookupFile(rel); ok && existing.Hash == hash {
 		return false, nil
 	}
 	if err := ensureDirPath(s, path.Dir(rel)); err != nil {
@@ -347,6 +360,7 @@ func upsertFileFromDisk(s *BuildSnapshot, absPath, rel string) (bool, error) {
 		Content: content,
 		Hash:    hash,
 	}
+	delete(s.deletedFiles, rel)
 	parent := path.Dir(rel)
 	if parent == "." {
 		parent = ""
@@ -358,9 +372,10 @@ func upsertFileFromDisk(s *BuildSnapshot, absPath, rel string) (bool, error) {
 func ensureDirPath(s *BuildSnapshot, rel string) error {
 	rel = cleanRepoPath(rel)
 	if rel == "" {
-		if _, ok := s.dirs[""]; !ok {
+		if _, ok := s.lookupDir(""); !ok {
 			s.dirs[""] = nil
 		}
+		delete(s.deletedDirs, "")
 		return nil
 	}
 	parent := path.Dir(rel)
@@ -370,37 +385,42 @@ func ensureDirPath(s *BuildSnapshot, rel string) error {
 	if err := ensureDirPath(s, parent); err != nil {
 		return err
 	}
-	if _, ok := s.dirs[rel]; !ok {
+	if _, ok := s.lookupDir(rel); !ok {
 		s.dirs[rel] = nil
 	}
+	delete(s.deletedDirs, rel)
 	addDirEntry(s, parent, path.Base(rel))
 	return nil
 }
 
 func addDirEntry(s *BuildSnapshot, dir, name string) {
-	entries := append([]string(nil), s.dirs[dir]...)
+	entries, _ := s.lookupDir(dir)
+	entries = append([]string(nil), entries...)
 	for _, existing := range entries {
 		if existing == name {
 			s.dirs[dir] = entries
+			delete(s.deletedDirs, dir)
 			return
 		}
 	}
 	entries = append(entries, name)
 	s.dirs[dir] = entries
+	delete(s.deletedDirs, dir)
 }
 
 func removePath(s *BuildSnapshot, rel string) bool {
-	if _, ok := s.files[rel]; ok {
+	if _, ok := s.lookupFile(rel); ok {
 		delete(s.files, rel)
+		s.deletedFiles[rel] = struct{}{}
 		s.builder.DeletePath(rel)
 		removeDirEntry(s, parentDir(rel), path.Base(rel))
 		return true
 	}
-	if _, ok := s.dirs[rel]; !ok {
+	if _, ok := s.lookupDir(rel); !ok {
 		return false
 	}
 	var subdirs []string
-	for dir := range s.dirs {
+	for _, dir := range s.dirPaths() {
 		if dir == rel || pathHasPrefix(dir, rel) {
 			subdirs = append(subdirs, dir)
 		}
@@ -408,10 +428,12 @@ func removePath(s *BuildSnapshot, rel string) bool {
 	sort.Slice(subdirs, func(i, j int) bool { return len(subdirs[i]) > len(subdirs[j]) })
 	for _, dir := range subdirs {
 		delete(s.dirs, dir)
+		s.deletedDirs[dir] = struct{}{}
 	}
-	for file := range s.files {
+	for _, file := range s.filePaths() {
 		if pathHasPrefix(file, rel) {
 			delete(s.files, file)
+			s.deletedFiles[file] = struct{}{}
 		}
 	}
 	s.builder.DeleteSubtree(rel)
@@ -420,7 +442,7 @@ func removePath(s *BuildSnapshot, rel string) bool {
 }
 
 func removeDirEntry(s *BuildSnapshot, dir, name string) {
-	entries, ok := s.dirs[dir]
+	entries, ok := s.lookupDir(dir)
 	if !ok {
 		return
 	}

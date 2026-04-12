@@ -4,6 +4,7 @@ go_library(
     name = "language",
     srcs = [
         "base.go",
+        "doc.go",
         "lang.go",
         "registry.go",
     ],

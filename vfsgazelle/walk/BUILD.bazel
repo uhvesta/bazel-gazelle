@@ -4,6 +4,7 @@ go_library(
     name = "walk",
     srcs = [
         "config.go",
+        "doc.go",
         "walk.go",
     ],
     importpath = "github.com/uhvesta/bazel-gazelle/vfsgazelle/walk",

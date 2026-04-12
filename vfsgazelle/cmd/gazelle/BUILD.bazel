@@ -29,10 +29,7 @@ go_library(
 
 go_test(
     name = "gazelle_test",
-    srcs = [
-        "langs.go",
-        "main_test.go",
-    ],
+    srcs = ["main_test.go"],
     embed = [":gazelle_lib"],
     deps = [
         "//vfsgazelle/internal/vfs",

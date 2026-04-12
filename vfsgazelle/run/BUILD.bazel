@@ -2,7 +2,10 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 
 go_library(
     name = "run",
-    srcs = ["run.go"],
+    srcs = [
+        "doc.go",
+        "run.go",
+    ],
     importpath = "github.com/uhvesta/bazel-gazelle/vfsgazelle/run",
     visibility = ["//visibility:public"],
     deps = [
