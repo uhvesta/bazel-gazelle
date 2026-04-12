@@ -861,7 +861,22 @@ func (g *generator) setImportAttrs(r *rule.Rule, importPath string) {
 		if importMap != importPath {
 			r.SetAttr("importmap", importMap)
 		}
+		return
 	}
+
+	// Vendored packages should preserve the full repo-relative import path as
+	// their importmap even when no explicit importmap_prefix is configured.
+	// Stock Gazelle gets this from the vendor-directory config path.
+	if isVendoredRel(g.rel) {
+		importMap := InferImportPath(g.c, g.rel)
+		if importMap != "" && importMap != importPath {
+			r.SetAttr("importmap", importMap)
+		}
+	}
+}
+
+func isVendoredRel(rel string) bool {
+	return rel == "vendor" || strings.HasPrefix(rel, "vendor/") || strings.Contains(rel, "/vendor/")
 }
 
 func (g *generator) commonVisibility(importPath string) []string {

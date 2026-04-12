@@ -113,6 +113,8 @@ type Dir struct {
 	rel              string
 	subdirViews      []*Dir
 	regularFileViews []FileRef
+	filteredSubdirs  bool
+	filteredFiles    bool
 }
 
 // FileRef is a lightweight handle to a file in a frozen repo snapshot.
@@ -395,6 +397,7 @@ func (s *Snapshot) DirView(rel string, subdirs []string, regularFiles []string) 
 		return nil, false
 	}
 	if subdirs != nil {
+		base.filteredSubdirs = true
 		base.subdirViews = make([]*Dir, 0, len(subdirs))
 		for _, name := range subdirs {
 			child, ok := s.Dir(path.Join(rel, name))
@@ -404,6 +407,7 @@ func (s *Snapshot) DirView(rel string, subdirs []string, regularFiles []string) 
 		}
 	}
 	if regularFiles != nil {
+		base.filteredFiles = true
 		base.regularFileViews = make([]FileRef, 0, len(regularFiles))
 		for _, name := range regularFiles {
 			fileRel := cleanRepoPath(path.Join(rel, name))
@@ -520,7 +524,7 @@ func (d *Dir) Child(name string) (*Dir, bool) {
 	if d == nil || d.repo == nil {
 		return nil, false
 	}
-	if d.subdirViews != nil {
+	if d.filteredSubdirs {
 		for _, child := range d.subdirViews {
 			if child != nil && child.Name() == name {
 				return child, true
@@ -539,7 +543,7 @@ func (d *Dir) Subdirs() []*Dir {
 	if d == nil || d.repo == nil {
 		return nil
 	}
-	if d.subdirViews != nil {
+	if d.filteredSubdirs {
 		return append([]*Dir(nil), d.subdirViews...)
 	}
 	entries, ok := d.repo.dirs[d.rel]
@@ -560,7 +564,7 @@ func (d *Dir) RegularFiles() []FileRef {
 	if d == nil || d.repo == nil {
 		return nil
 	}
-	if d.regularFileViews != nil {
+	if d.filteredFiles {
 		return append([]FileRef(nil), d.regularFileViews...)
 	}
 	entries, ok := d.repo.dirs[d.rel]

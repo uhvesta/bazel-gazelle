@@ -152,7 +152,8 @@ func walkDir(repo *vfs.Snapshot, c *config.Config, cexts []config.Configurer, kn
 		return visitInfo{}, nil
 	}
 
-	var subdirs, regularFiles []string
+	subdirs := make([]string, 0)
+	regularFiles := make([]string, 0)
 	for _, name := range entries {
 		entryRel := path.Join(rel, name)
 		if wc != nil && wc.isExcludedDir(entryRel) {

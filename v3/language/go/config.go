@@ -67,6 +67,10 @@ type goConfig struct {
 	// to infer an importpath for a rule without setting the prefix.
 	prefixSet bool
 
+	// repoPrefix preserves the repo-level import prefix even when prefix/prefixRel
+	// are rewritten for vendored packages.
+	repoPrefix string
+
 	// importMapPrefix is a prefix of a package path, used to generate importmap
 	// attributes. Set with # gazelle:importmap_prefix.
 	importMapPrefix string
@@ -594,7 +598,11 @@ Update io_bazel_rules_go to a newer version in your WORKSPACE file.`
 	}
 
 	if path.Base(rel) == "vendor" {
-		gc.importMapPrefix = InferImportPath(c, rel)
+		importMapPrefix := InferImportPath(c, rel)
+		if gc.repoPrefix != "" {
+			importMapPrefix = path.Join(gc.repoPrefix, rel)
+		}
+		gc.importMapPrefix = importMapPrefix
 		gc.importMapPrefixRel = rel
 		gc.prefix = ""
 		gc.prefixRel = rel
@@ -605,6 +613,9 @@ Update io_bazel_rules_go to a newer version in your WORKSPACE file.`
 			if err := checkPrefix(prefix); err != nil {
 				log.Print(err)
 				return
+			}
+			if gc.repoPrefix == "" || rel == "" {
+				gc.repoPrefix = prefix
 			}
 			gc.prefix = prefix
 			gc.prefixSet = true
