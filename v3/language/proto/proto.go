@@ -32,8 +32,8 @@ func (*protoLang) RegisterParsers(reg *vfs.Registry) error {
 
 type protoFileParser struct{}
 
-func (protoFileParser) Key() string     { return "proto/fileinfo" }
-func (protoFileParser) Version() string { return "v1" }
+func (protoFileParser) Key() string          { return "proto/fileinfo" }
+func (protoFileParser) CacheVersion() string { return "v1" }
 func (protoFileParser) Parse(path string, data []byte) (any, error) {
 	return parseProtoFileInfo(path, data), nil
 }

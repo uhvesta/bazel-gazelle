@@ -476,7 +476,7 @@ func primeParsers(repo *vfs.BuildSnapshot) error {
 					entry: vfs.Entry{
 						Path:          job.file.Path,
 						ParserKey:     job.parser.Key(),
-						ParserVersion: job.parser.Version(),
+						ParserVersion: job.parser.CacheVersion(),
 						ContentHash:   job.file.Hash,
 						ModelHash:     vfsDigest(encoded),
 						EncodedModel:  encoded,

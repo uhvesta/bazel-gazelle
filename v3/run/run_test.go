@@ -23,8 +23,8 @@ type fakeModel struct {
 
 type fakeParser struct{}
 
-func (*fakeParser) Key() string     { return "fake/model" }
-func (*fakeParser) Version() string { return "v1" }
+func (*fakeParser) Key() string          { return "fake/model" }
+func (*fakeParser) CacheVersion() string { return "v1" }
 func (*fakeParser) Parse(path string, data []byte) (any, error) {
 	var model fakeModel
 	lines := strings.Split(strings.TrimSpace(string(data)), "\n")

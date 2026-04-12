@@ -102,8 +102,8 @@ type goParsedFile struct {
 
 type goFileParser struct{}
 
-func (goFileParser) Key() string     { return "go/fileinfo-lite" }
-func (goFileParser) Version() string { return "v1" }
+func (goFileParser) Key() string          { return "go/fileinfo-lite" }
+func (goFileParser) CacheVersion() string { return "v1" }
 func (goFileParser) Parse(path string, data []byte) (any, error) {
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, path, data, parser.ImportsOnly)
@@ -130,8 +130,8 @@ type goModInfo struct {
 
 type goModParser struct{}
 
-func (goModParser) Key() string     { return "go/modfile" }
-func (goModParser) Version() string { return "v1" }
+func (goModParser) Key() string          { return "go/modfile" }
+func (goModParser) CacheVersion() string { return "v1" }
 func (goModParser) Parse(path string, data []byte) (any, error) {
 	model := goModInfo{}
 	file, err := modfile.ParseLax(path, data, nil)

@@ -19,8 +19,8 @@ type countingParser struct {
 	parses  int
 }
 
-func (p *countingParser) Key() string     { return p.key }
-func (p *countingParser) Version() string { return p.version }
+func (p *countingParser) Key() string          { return p.key }
+func (p *countingParser) CacheVersion() string { return p.version }
 
 func (p *countingParser) Parse(path string, data []byte) (any, error) {
 	p.parses++

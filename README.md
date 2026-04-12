@@ -127,9 +127,11 @@ At a high level it stores:
 - directory membership
 - per-file path and content hash
 - raw file content when the runner still needs direct bytes
-- parsed models keyed by `(path, parser key, parser version, content hash)`
+- parsed models keyed by `(path, parser key, parser cache version, content hash)`
 
 The important design choice is that the semantic cache is the main cache. For parser-backed files like `.go`, `.proto`, and `go.mod`, the useful thing is usually the parsed model, not the raw bytes.
+
+Each parser also declares a manual cache version string. Parser authors are expected to bump that version whenever old cached parser results should be invalidated.
 
 The snapshot has two phases:
 
@@ -230,6 +232,8 @@ The intended `v3` pattern is:
 3. load that model through `Repo.GetModel(...)`
 4. use it during `Configure`, `GenerateRules`, `Imports`, or `Resolve`
 
+If the parser changes in a way that makes old cached entries unsafe, the parser should bump its cache version so those entries are ignored.
+
 In practice that means external dependency resolution can be:
 
 - language-specific
@@ -302,6 +306,8 @@ Important differences:
 - plugins can register parsers up front and consume cached models through:
   - `Repo.GetModel(path, parserKey)`
 
+For most non-trivial `v3` ports, parser registration is not optional in practice. It is the normal way to move repeated parsing work into the VFS cache.
+
 So instead of relying on direct OS IO, a `v3` plugin is expected to use:
 
 - `Repo.ReadFile(...)`
@@ -327,6 +333,7 @@ In practice, the most common code changes are:
 - replace path concatenation plus `os.ReadFile` with `Repo.ReadFile`
 - replace repeated parsing helpers with `Repo.GetModel`
 - replace config-time repo probing with snapshot queries in `ConfigureRepo`
+- add a parser with a manual `CacheVersion()` string and bump it when parser semantics change
 
 ### Function Signature Differences
 
@@ -415,6 +422,8 @@ func (*fooLang) RegisterParsers(reg *vfs.Registry) error {
     return reg.Register(fooParser{}, vfs.MatchExtension(".foo"))
 }
 
+func (fooParser) CacheVersion() string { return "v1" }
+
 func (*fooLang) ConfigureRepo(c *config.Config, repo *vfs.Snapshot, rel string, f *rule.File) {
     // Read directives from f and update c.Exts as needed.
     // Use repo.ReadFile / repo.ListDir / repo.GetModel here if config-time
@@ -468,6 +477,8 @@ The semantic change is small:
 
 That is the most common migration pattern: keep the rule logic, replace the
 filesystem plumbing.
+
+In a real `v3` plugin, registering the parser is part of the normal port. Without that, the plugin can still call `Repo.ReadFile(...)`, but it will miss one of the main benefits of `v3`: cached parsed semantic state.
 
 ### File IO Differences
 

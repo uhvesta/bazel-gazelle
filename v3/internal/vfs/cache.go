@@ -13,10 +13,12 @@ import (
 // Parser describes how a file should be parsed into a serializable model.
 //
 // Implementations should ensure that Encode/Decode are stable across process
-// boundaries for a fixed Version, since encoded models may be persisted.
+// boundaries for a fixed CacheVersion, since encoded models may be persisted.
+// Parser authors are responsible for manually bumping CacheVersion whenever
+// old cached parser results should be invalidated.
 type Parser interface {
 	Key() string
-	Version() string
+	CacheVersion() string
 	Parse(path string, data []byte) (any, error)
 	Encode(model any) ([]byte, error)
 	Decode(data []byte) (any, error)
@@ -80,7 +82,7 @@ func NewCacheBuilder(seed *Cache) *CacheBuilder {
 }
 
 // Parse returns a parsed model for path and parser, reusing a cached encoded
-// model when the content hash and parser version match.
+// model when the content hash and parser cache version match.
 //
 // This method is intended to be called only by the single build-phase owner.
 func (b *CacheBuilder) Parse(path string, data []byte, parser Parser) (LookupResult, error) {
@@ -90,14 +92,14 @@ func (b *CacheBuilder) Parse(path string, data []byte, parser Parser) (LookupRes
 	if parser.Key() == "" {
 		return LookupResult{}, fmt.Errorf("parser key must not be empty")
 	}
-	if parser.Version() == "" {
-		return LookupResult{}, fmt.Errorf("parser version must not be empty")
+	if parser.CacheVersion() == "" {
+		return LookupResult{}, fmt.Errorf("parser cache version must not be empty")
 	}
 
 	contentHash := digest(data)
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
 
-	if entry, ok := b.entries[key]; ok && entry.ParserVersion == parser.Version() && entry.ContentHash == contentHash {
+	if entry, ok := b.entries[key]; ok && entry.ParserVersion == parser.CacheVersion() && entry.ContentHash == contentHash {
 		model, err := parser.Decode(entry.EncodedModel)
 		if err != nil {
 			return LookupResult{}, fmt.Errorf("decode cached model for %s with parser %s: %w", path, parser.Key(), err)
@@ -128,7 +130,7 @@ func (b *CacheBuilder) Parse(path string, data []byte, parser Parser) (LookupRes
 	b.entries[key] = Entry{
 		Path:          path,
 		ParserKey:     parser.Key(),
-		ParserVersion: parser.Version(),
+		ParserVersion: parser.CacheVersion(),
 		ContentHash:   result.ContentHash,
 		ModelHash:     result.ModelHash,
 		EncodedModel:  append([]byte(nil), encoded...),
@@ -146,14 +148,14 @@ func (b *CacheBuilder) Check(path string, data []byte, parser Parser) (LookupRes
 	if parser.Key() == "" {
 		return LookupResult{}, false, fmt.Errorf("parser key must not be empty")
 	}
-	if parser.Version() == "" {
-		return LookupResult{}, false, fmt.Errorf("parser version must not be empty")
+	if parser.CacheVersion() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser cache version must not be empty")
 	}
 
 	contentHash := digest(data)
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
 	entry, ok := b.entries[key]
-	if !ok || entry.ParserVersion != parser.Version() || entry.ContentHash != contentHash {
+	if !ok || entry.ParserVersion != parser.CacheVersion() || entry.ContentHash != contentHash {
 		return LookupResult{}, false, nil
 	}
 
@@ -176,12 +178,12 @@ func (b *CacheBuilder) CheckHash(path, contentHash string, parser Parser) (Looku
 	if parser.Key() == "" {
 		return LookupResult{}, false, fmt.Errorf("parser key must not be empty")
 	}
-	if parser.Version() == "" {
-		return LookupResult{}, false, fmt.Errorf("parser version must not be empty")
+	if parser.CacheVersion() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser cache version must not be empty")
 	}
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
 	entry, ok := b.entries[key]
-	if !ok || entry.ParserVersion != parser.Version() || entry.ContentHash != contentHash {
+	if !ok || entry.ParserVersion != parser.CacheVersion() || entry.ContentHash != contentHash {
 		return LookupResult{}, false, nil
 	}
 	model, err := parser.Decode(entry.EncodedModel)
@@ -239,7 +241,7 @@ func (b *CacheBuilder) Freeze() *Cache {
 // Get returns a parsed model from a frozen cache.
 //
 // The bool result is false when the entry is absent or stale for the supplied
-// content hash / parser version. Frozen caches never parse or mutate.
+// content hash / parser cache version. Frozen caches never parse or mutate.
 func (c *Cache) Get(path string, data []byte, parser Parser) (LookupResult, bool, error) {
 	if parser == nil {
 		return LookupResult{}, false, fmt.Errorf("nil parser")
@@ -247,14 +249,14 @@ func (c *Cache) Get(path string, data []byte, parser Parser) (LookupResult, bool
 	if parser.Key() == "" {
 		return LookupResult{}, false, fmt.Errorf("parser key must not be empty")
 	}
-	if parser.Version() == "" {
-		return LookupResult{}, false, fmt.Errorf("parser version must not be empty")
+	if parser.CacheVersion() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser cache version must not be empty")
 	}
 
 	contentHash := digest(data)
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
 	entry, ok := c.entries[key]
-	if !ok || entry.ParserVersion != parser.Version() || entry.ContentHash != contentHash {
+	if !ok || entry.ParserVersion != parser.CacheVersion() || entry.ContentHash != contentHash {
 		return LookupResult{}, false, nil
 	}
 
@@ -277,12 +279,12 @@ func (c *Cache) GetHash(path, contentHash string, parser Parser) (LookupResult, 
 	if parser.Key() == "" {
 		return LookupResult{}, false, fmt.Errorf("parser key must not be empty")
 	}
-	if parser.Version() == "" {
-		return LookupResult{}, false, fmt.Errorf("parser version must not be empty")
+	if parser.CacheVersion() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser cache version must not be empty")
 	}
 	key := cacheKey{Path: path, ParserKey: parser.Key()}
 	entry, ok := c.entries[key]
-	if !ok || entry.ParserVersion != parser.Version() || entry.ContentHash != contentHash {
+	if !ok || entry.ParserVersion != parser.CacheVersion() || entry.ContentHash != contentHash {
 		return LookupResult{}, false, nil
 	}
 	model, err := parser.Decode(entry.EncodedModel)
