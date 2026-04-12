@@ -9,7 +9,7 @@ go_binary(
 go_library(
     name = "platform_info_generator_lib",
     srcs = ["main.go"],
-    importpath = "github.com/bazelbuild/bazel-gazelle/language/go/platform_info_generator",
+    importpath = "github.com/uhvesta/bazel-gazelle/language/go/platform_info_generator",
     visibility = ["//visibility:private"],
     deps = ["//rule"],
 )

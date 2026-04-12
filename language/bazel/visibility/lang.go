@@ -16,10 +16,10 @@ limitations under the License.
 package visibility
 
 import (
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/language"
-	"github.com/bazelbuild/bazel-gazelle/merger"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/merger"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 // TODO: Rename this extension now that it handles multiple package() attributes.

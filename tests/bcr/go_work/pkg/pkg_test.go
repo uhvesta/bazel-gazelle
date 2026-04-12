@@ -7,7 +7,6 @@ import (
 
 	"example.org/hello"
 	"github.com/DataDog/sketches-go/ddsketch"
-	"github.com/bazelbuild/bazel-gazelle/tests/bcr/go_work/pkg/data"
 	"github.com/bazelbuild/buildtools/labels"
 	"github.com/bazelbuild/rules_go/go/runfiles"
 	"github.com/bmatcuk/doublestar/v4"
@@ -15,6 +14,7 @@ import (
 	"github.com/fmeum/dep_on_gazelle"
 	"github.com/google/safetext/yamltemplate"
 	"github.com/stretchr/testify/require"
+	"github.com/uhvesta/bazel-gazelle/tests/bcr/go_work/pkg/data"
 
 	_ "github.com/envoyproxy/protoc-gen-validate/validate"
 )

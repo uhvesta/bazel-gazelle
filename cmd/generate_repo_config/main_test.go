@@ -20,7 +20,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/testtools"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 func TestGenerateRepoConfig(t *testing.T) {

@@ -18,8 +18,8 @@ package rule_test
 import (
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 func TestMergeRules(t *testing.T) {

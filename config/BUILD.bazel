@@ -6,7 +6,7 @@ go_library(
         "config.go",
         "constants.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/config",
+    importpath = "github.com/uhvesta/bazel-gazelle/config",
     visibility = ["//visibility:public"],
     deps = [
         "//internal/module",

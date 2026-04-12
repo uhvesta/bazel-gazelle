@@ -26,14 +26,14 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bazel-contrib/bazel-gazelle/v2/cmd/gazelle/update"
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/internal/wspace"
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/language"
-	"github.com/bazelbuild/bazel-gazelle/merger"
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/internal/wspace"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/merger"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/v2/cmd/gazelle/update"
 )
 
 type updateReposConfig struct {

@@ -26,10 +26,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	"github.com/bazelbuild/bazel-gazelle/testtools"
 	"github.com/google/go-cmp/cmp"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 func TestConfigureCallbackOrder(t *testing.T) {

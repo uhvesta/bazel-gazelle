@@ -22,11 +22,11 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/merger"
-	"github.com/bazelbuild/bazel-gazelle/pathtools"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/merger"
+	"github.com/uhvesta/bazel-gazelle/pathtools"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	v3language "github.com/uhvesta/bazel-gazelle/v3/language"
 )
 
 func (*protoLang) GenerateRules(args v3language.GenerateArgs) v3language.GenerateResult {

@@ -115,14 +115,14 @@ To support this, the Go extension needs to:
 
 1. Support the `go_search` directive in the `KnownDirectives` and `Configure`
 methods of the
-[`Configurer`](https://pkg.go.dev/github.com/bazelbuild/bazel-gazelle/config#Configurer)
+[`Configurer`](https://pkg.go.dev/github.com/uhvesta/bazel-gazelle/config#Configurer)
 implementation. This directive may be repeated and applies in subdirectories.
 1. Convert an import string like `example.com/b/c` into a list of directory
 paths like `replace/b/c`.
 1. Return the directory paths through
-[`GenerateResult.RelsToIndex`](https://pkg.go.dev/github.com/bazelbuild/bazel-gazelle/language#GenerateResult)
+[`GenerateResult.RelsToIndex`](https://pkg.go.dev/github.com/uhvesta/bazel-gazelle/language#GenerateResult)
 in the
-[`Language.GenerateRules`](https://pkg.go.dev/github.com/bazelbuild/bazel-gazelle/language#Language)
+[`Language.GenerateRules`](https://pkg.go.dev/github.com/uhvesta/bazel-gazelle/language#Language)
 method.
 
 Other extensions should follow a similar approach, though there are likely to
@@ -151,13 +151,13 @@ rules in each directory, if there were any. For each of these rules, you can
 call `r.PrivateAttr(proto.PackageKey)` to get a [proto.Package] record. This
 includes the proto package name, as well as source names, imports, and options.
 
-[Language]: https://godoc.org/github.com/bazelbuild/bazel-gazelle/language#Language
-[//internal/gazellebinarytest:go_default_library]: https://github.com/bazelbuild/bazel-gazelle/tree/master/internal/gazellebinarytest
-[//language/go:go_default_library]: https://github.com/bazelbuild/bazel-gazelle/tree/master/language/go
-[//language/proto:go_default_library]: https://github.com/bazelbuild/bazel-gazelle/tree/master/language/proto
-[gazelle]: https://github.com/bazelbuild/bazel-gazelle#bazel-rule
+[Language]: https://godoc.org/github.com/uhvesta/bazel-gazelle/language#Language
+[//internal/gazellebinarytest:go_default_library]: https://github.com/uhvesta/bazel-gazelle/tree/master/internal/gazellebinarytest
+[//language/go:go_default_library]: https://github.com/uhvesta/bazel-gazelle/tree/master/language/go
+[//language/proto:go_default_library]: https://github.com/uhvesta/bazel-gazelle/tree/master/language/proto
+[gazelle]: https://github.com/uhvesta/bazel-gazelle#bazel-rule
 [go_binary]: https://github.com/bazelbuild/rules_go/blob/master/go/core.rst#go-binary
 [go_library]: https://github.com/bazelbuild/rules_go/blob/master/go/core.rst#go-library
-[proto godoc]: https://godoc.org/github.com/bazelbuild/bazel-gazelle/language/proto
-[proto.GetProtoConfig]: https://godoc.org/github.com/bazelbuild/bazel-gazelle/language/proto#GetProtoConfig
-[proto.Package]: https://godoc.org/github.com/bazelbuild/bazel-gazelle/language/proto#Package
+[proto godoc]: https://godoc.org/github.com/uhvesta/bazel-gazelle/language/proto
+[proto.GetProtoConfig]: https://godoc.org/github.com/uhvesta/bazel-gazelle/language/proto#GetProtoConfig
+[proto.Package]: https://godoc.org/github.com/uhvesta/bazel-gazelle/language/proto#Package

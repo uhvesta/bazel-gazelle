@@ -22,9 +22,9 @@ limitations under the License.
 package language
 
 import (
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/resolve"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/resolve"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 // Language describes an extension for Gazelle that provides support for

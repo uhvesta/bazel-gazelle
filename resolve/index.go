@@ -18,10 +18,10 @@ package resolve
 import (
 	"log"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 // ImportSpec describes a library to be imported. Imp is an import string for
@@ -110,7 +110,7 @@ type RuleIndex struct {
 
 // ruleRecord contains information about a rule relevant to import indexing.
 type ruleRecord struct {
-	rule  *rule.Rule
+	rule *rule.Rule
 
 	Kind  string      `json:"kind"`
 	Label label.Label `json:"label"`

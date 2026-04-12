@@ -19,7 +19,7 @@ import (
 	"fmt"
 	"path/filepath"
 
-	"github.com/bazelbuild/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/language"
 )
 
 func importReposFromWork(args language.ImportReposArgs) language.ImportReposResult {

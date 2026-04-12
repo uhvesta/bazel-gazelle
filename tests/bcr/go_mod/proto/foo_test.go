@@ -3,7 +3,7 @@ package proto
 import (
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/tests/bcr/proto/foo"
+	"github.com/uhvesta/bazel-gazelle/tests/bcr/proto/foo"
 	"google.golang.org/genproto/googleapis/bytestream"
 	"google.golang.org/genproto/protobuf/ptype"
 	"google.golang.org/protobuf/types/known/sourcecontextpb"

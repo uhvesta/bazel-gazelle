@@ -7,7 +7,7 @@ go_library(
         "config.go",
         "files.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/testtools",
+    importpath = "github.com/uhvesta/bazel-gazelle/testtools",
     visibility = ["//visibility:public"],
     deps = [
         "//config",

@@ -27,9 +27,9 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/pathtools"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/pathtools"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 // Mode determines which directories Walk visits and which directories
@@ -537,7 +537,7 @@ func configure(cexts []config.Configurer, knownDirectives map[string]bool, c *co
 			if !knownDirectives[d.Key] {
 				log.Printf("%s: unknown directive: gazelle:%s", f.Path, d.Key)
 				if c.Strict {
-					// TODO(https://github.com/bazelbuild/bazel-gazelle/issues/1029):
+					// TODO(https://github.com/uhvesta/bazel-gazelle/issues/1029):
 					// Refactor to accumulate and propagate errors to main.
 					log.Fatal("Exit as strict mode is on")
 				}

@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 func printFile(c *config.Config, f *rule.File) error {

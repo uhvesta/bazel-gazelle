@@ -15,7 +15,7 @@ go_test(
 go_library(
     name = "override-generator_lib",
     srcs = ["main.go"],
-    importpath = "github.com/bazelbuild/bazel-gazelle/tools/override-generator",
+    importpath = "github.com/uhvesta/bazel-gazelle/tools/override-generator",
     visibility = ["//visibility:private"],
     deps = [
         "//repo",

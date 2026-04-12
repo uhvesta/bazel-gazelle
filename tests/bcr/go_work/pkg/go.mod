@@ -1,4 +1,4 @@
-module github.com/bazelbuild/bazel-gazelle/tests/bcr/go_work/pkg
+module github.com/uhvesta/bazel-gazelle/tests/bcr/go_work/pkg
 
 go 1.23.3
 
@@ -18,7 +18,7 @@ require (
 )
 
 require (
-	github.com/bazelbuild/bazel-gazelle v0.30.0 // indirect
+	github.com/uhvesta/bazel-gazelle v0.30.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/uuid v1.3.0 // indirect
 	github.com/pborman/uuid v1.2.1 // indirect

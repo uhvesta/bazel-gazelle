@@ -7,7 +7,7 @@ go_library(
         "lang.go",
         "registry.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/v3/language",
+    importpath = "github.com/uhvesta/bazel-gazelle/v3/language",
     visibility = ["//visibility:public"],
     deps = [
         "//config",

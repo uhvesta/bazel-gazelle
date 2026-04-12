@@ -28,15 +28,15 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	gzflag "github.com/bazelbuild/bazel-gazelle/flag"
-	"github.com/bazelbuild/bazel-gazelle/internal/module"
-	"github.com/bazelbuild/bazel-gazelle/internal/version"
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	proto "github.com/bazelbuild/bazel-gazelle/v3/language/proto"
 	bzl "github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/config"
+	gzflag "github.com/uhvesta/bazel-gazelle/flag"
+	"github.com/uhvesta/bazel-gazelle/internal/module"
+	"github.com/uhvesta/bazel-gazelle/internal/version"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	proto "github.com/uhvesta/bazel-gazelle/v3/language/proto"
 )
 
 var minimumRulesGoVersion = version.Version{0, 29, 0}

@@ -20,8 +20,8 @@ import (
 	"os/exec"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/testtools"
 	"github.com/bazelbuild/rules_go/go/tools/bazel"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 func TestGazelleBinary(t *testing.T) {

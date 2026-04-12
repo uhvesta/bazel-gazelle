@@ -28,7 +28,7 @@ go_test(
     name = "foo_test",
     srcs = ["foo_test.go"],
     _gazelle_imports = [
-        "github.com/bazelbuild/bazel-gazelle/testtools",
+        "github.com/uhvesta/bazel-gazelle/testtools",
         "testing",
     ],
     embed = [":tests_per_file_from_default"],

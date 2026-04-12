@@ -18,7 +18,7 @@ package golang
 import (
 	"fmt"
 
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 var goKinds = map[string]rule.KindInfo{

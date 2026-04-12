@@ -23,8 +23,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/testtools"
 	"github.com/bazelbuild/rules_go/go/runfiles"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 // Set via x_defs.

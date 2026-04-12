@@ -20,7 +20,7 @@ go_library(
         "utils.go",
         "vfs.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/v3/language/go",
+    importpath = "github.com/uhvesta/bazel-gazelle/v3/language/go",
     visibility = ["//visibility:public"],
     deps = [
         "//config",

@@ -4,7 +4,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_binary", "go_library")
 go_library(
     name = "gen_lib",
     srcs = ["gen_known_imports.go"],
-    importpath = "github.com/bazelbuild/bazel-gazelle/language/proto/gen",
+    importpath = "github.com/uhvesta/bazel-gazelle/language/proto/gen",
     visibility = ["//visibility:private"],
     deps = ["//label"],
 )

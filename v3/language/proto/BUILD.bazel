@@ -14,7 +14,7 @@ go_library(
         "proto.go",
         "resolve.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/v3/language/proto",
+    importpath = "github.com/uhvesta/bazel-gazelle/v3/language/proto",
     visibility = ["//visibility:public"],
     deps = [
         "//config",

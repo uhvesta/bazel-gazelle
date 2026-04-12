@@ -11,7 +11,7 @@ go_library(
     name = "gazelle_lib",
     # keep
     srcs = ["main.go"],
-    importpath = "github.com/bazelbuild/bazel-gazelle/v3/cmd/gazelle",
+    importpath = "github.com/uhvesta/bazel-gazelle/v3/cmd/gazelle",
     tags = ["manual"],
     visibility = ["//visibility:public"],
     deps = [
@@ -29,7 +29,10 @@ go_library(
 
 go_test(
     name = "gazelle_test",
-    srcs = ["main_test.go"],
+    srcs = [
+        "langs.go",
+        "main_test.go",
+    ],
     embed = [":gazelle_lib"],
     deps = [
         "//v3/internal/vfs",

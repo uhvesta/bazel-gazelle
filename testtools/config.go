@@ -19,8 +19,8 @@ import (
 	"flag"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/language"
 )
 
 // NewTestConfig returns a Config used for tests in any language extension.

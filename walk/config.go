@@ -27,12 +27,12 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/rule"
 
-	gzflag "github.com/bazelbuild/bazel-gazelle/flag"
+	gzflag "github.com/uhvesta/bazel-gazelle/flag"
 )
 
 // generationModeType represents one of the generation modes.

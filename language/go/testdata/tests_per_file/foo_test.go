@@ -3,7 +3,7 @@ package tests_per_file
 import (
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/testtools"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 type fileSpec testtools.FileSpec

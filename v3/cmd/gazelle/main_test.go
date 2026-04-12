@@ -5,7 +5,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
+	"github.com/uhvesta/bazel-gazelle/v3/internal/vfs"
 )
 
 func TestSaveLoadSnapshot(t *testing.T) {

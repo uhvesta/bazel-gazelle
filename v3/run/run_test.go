@@ -8,12 +8,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/resolve"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
-	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
-	golang "github.com/bazelbuild/bazel-gazelle/v3/language/go"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/resolve"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/v3/internal/vfs"
+	v3language "github.com/uhvesta/bazel-gazelle/v3/language"
+	golang "github.com/uhvesta/bazel-gazelle/v3/language/go"
 )
 
 type fakeModel struct {

@@ -41,9 +41,9 @@ but module "{module_name}" requests it.
 
 If you need this override for a Bazel module that will be available in a public \
 registry (such as the Bazel Central Registry), please file an issue at \
-https://github.com/bazelbuild/bazel-gazelle/issues/new or submit a PR adding \
+https://github.com/uhvesta/bazel-gazelle/issues/new or submit a PR adding \
 the required directives to the "default_gazelle_overrides.bzl" file at \
-https://github.com/bazelbuild/bazel-gazelle/tree/master/internal/bzlmod/default_gazelle_overrides.bzl.
+https://github.com/uhvesta/bazel-gazelle/tree/master/internal/bzlmod/default_gazelle_overrides.bzl.
 """
 
 _GAZELLE_ATTRS = {

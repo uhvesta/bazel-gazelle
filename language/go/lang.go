@@ -16,15 +16,15 @@ limitations under the License.
 // Package golang provides support for Go and Go proto rules. It generates
 // go_library, go_binary, go_test, and go_proto_library rules.
 //
-// Configuration
+// # Configuration
 //
 // Go rules support the flags -build_tags, -go_prefix, and -external.
 // They also support the directives # gazelle:build_tags, # gazelle:prefix,
 // and # gazelle:importmap_prefix. See
-// https://github.com/bazelbuild/bazel-gazelle/blob/master/README.rst#directives
+// https://github.com/uhvesta/bazel-gazelle/blob/master/README.rst#directives
 // for information on these.
 //
-// Rule generation
+// # Rule generation
 //
 // Currently, Gazelle generates rules for one Go package per directory. In
 // general, we aim to support Go code which is compatible with "go build". If
@@ -40,7 +40,7 @@ limitations under the License.
 // migrate away from this because it's surprising. Libraries should generally
 // be named after their directories.
 //
-// Dependency resolution
+// # Dependency resolution
 //
 // Go libraries are indexed by their importpath attribute. Gazelle attempts to
 // resolve libraries by import path using the index, filtered using the
@@ -53,7 +53,7 @@ limitations under the License.
 // Known Types and Google APIs. rules_go declares canonical rules for these.
 package golang
 
-import "github.com/bazelbuild/bazel-gazelle/language"
+import "github.com/uhvesta/bazel-gazelle/language"
 
 const goName = "go"
 

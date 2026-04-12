@@ -45,7 +45,7 @@ If you know of an extension which could be linked here, please [open a PR](https
 
 More languages can be added by [Extending Gazelle](extend.md). Chat with us in the `#gazelle` channel on [Bazel Slack](https://slack.bazel.build) if you'd like to discuss your design.
 
-If you've written your own extension, please consider open-sourcing it for use by the rest of the community. Note that such extensions belong in a language-specific repository, not in bazel-gazelle. See discussion in [#1030](https://github.com/bazelbuild/bazel-gazelle/issues/1030).
+If you've written your own extension, please consider open-sourcing it for use by the rest of the community. Note that such extensions belong in a language-specific repository, not in bazel-gazelle. See discussion in [#1030](https://github.com/uhvesta/bazel-gazelle/issues/1030).
 
 ## Setup
 
@@ -75,8 +75,8 @@ http_archive(
     name = "bazel_gazelle",
     integrity = "sha256-12v3pg/YsFBEQJDfooN6Tq+YKeEWVhjuNdzspcvfWNU=",
     urls = [
-        "https://mirror.bazel.build/github.com/bazelbuild/bazel-gazelle/releases/download/v0.37.0/bazel-gazelle-v0.37.0.tar.gz",
-        "https://github.com/bazelbuild/bazel-gazelle/releases/download/v0.37.0/bazel-gazelle-v0.37.0.tar.gz",
+        "https://mirror.bazel.build/github.com/uhvesta/bazel-gazelle/releases/download/v0.37.0/bazel-gazelle-v0.37.0.tar.gz",
+        "https://github.com/uhvesta/bazel-gazelle/releases/download/v0.37.0/bazel-gazelle-v0.37.0.tar.gz",
     ],
 )
 

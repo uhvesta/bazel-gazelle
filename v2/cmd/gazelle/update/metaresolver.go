@@ -16,11 +16,11 @@ limitations under the License.
 package update
 
 import (
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/resolve"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/resolve"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 // metaResolver provides a rule.Resolver for any rule.Rule.

@@ -7,9 +7,9 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/rule"
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 func TestCheckPathMatchPattern(t *testing.T) {

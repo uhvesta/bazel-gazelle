@@ -3,7 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "wspace",
     srcs = ["finder.go"],
-    importpath = "github.com/bazel-contrib/bazel-gazelle/v2/internal/wspace",
+    importpath = "github.com/uhvesta/bazel-gazelle/v2/internal/wspace",
     visibility = ["//visibility:public"],
 )
 

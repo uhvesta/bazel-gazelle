@@ -3,7 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "module",
     srcs = ["module.go"],
-    importpath = "github.com/bazelbuild/bazel-gazelle/internal/module",
+    importpath = "github.com/uhvesta/bazel-gazelle/internal/module",
     visibility = ["//:__subpackages__"],
     deps = [
         "//label",

@@ -11,7 +11,7 @@ go_library(
         "profiler.go",
         "update.go",
     ],
-    importpath = "github.com/bazel-contrib/bazel-gazelle/v2/cmd/gazelle/update",
+    importpath = "github.com/uhvesta/bazel-gazelle/v2/cmd/gazelle/update",
     visibility = ["//visibility:public"],
     x_defs = {
         "BazelModuleVersion": GAZELLE_MODULE_VERSION,

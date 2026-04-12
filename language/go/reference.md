@@ -64,7 +64,7 @@ As a special case, when Gazelle enters a directory named `vendor`, it sets `impo
 
 **Directive:** `# gazelle:prefix path`<br>
 **Default:** n/a<br>
-A prefix for `importpath` attributes on library rules. Gazelle will set an `importpath` on a `go_library` or `go_proto_library` by concatenating this with the relative path from the directory where the prefix is set to the library. Most commonly, `prefix` is set to the name of a repository in the root directory of a repository. For example, in this repository, `prefix` is set in `//:BUILD.bazel` to `github.com/bazelbuild/bazel-gazelle`. The `go_library` in `//cmd/gazelle` is assigned the `importpath` `"github.com/bazelbuild/bazel-gazelle/cmd/gazelle"`.
+A prefix for `importpath` attributes on library rules. Gazelle will set an `importpath` on a `go_library` or `go_proto_library` by concatenating this with the relative path from the directory where the prefix is set to the library. Most commonly, `prefix` is set to the name of a repository in the root directory of a repository. For example, in this repository, `prefix` is set in `//:BUILD.bazel` to `github.com/uhvesta/bazel-gazelle`. The `go_library` in `//cmd/gazelle` is assigned the `importpath` `"github.com/uhvesta/bazel-gazelle/cmd/gazelle"`.
 
 As a special case, when Gazelle enters a directory named `vendor`, it sets `prefix` to the empty string. This automatically gives vendored libraries an intuitive `importpath`.
 

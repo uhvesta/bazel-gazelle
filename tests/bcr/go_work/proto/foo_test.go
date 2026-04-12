@@ -3,7 +3,7 @@ package proto
 import (
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/tests/bcr/proto/foo"
+	"github.com/uhvesta/bazel-gazelle/tests/bcr/proto/foo"
 	"google.golang.org/protobuf/types/known/sourcecontextpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 	"google.golang.org/protobuf/types/known/typepb"

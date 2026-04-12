@@ -19,8 +19,8 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/merger"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/merger"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 type fixTestCase struct {

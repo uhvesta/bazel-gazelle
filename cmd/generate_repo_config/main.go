@@ -34,8 +34,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 const (
@@ -136,7 +136,7 @@ func generateRepoConfig(configDest, configSource string) ([]string, error) {
 		// This is safe/required because repo.ListRepositories(sourceFile) is called
 		// with the sourcefile as the workspace, so the source file location is always
 		// prepended to the macro file paths.
-		// TODO: https://github.com/bazelbuild/bazel-gazelle/issues/1068
+		// TODO: https://github.com/uhvesta/bazel-gazelle/issues/1068
 		f, err := filepath.Rel(filepath.Dir(configSource), m.Path)
 		if err != nil {
 			return nil, err

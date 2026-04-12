@@ -18,9 +18,9 @@ package rule
 import (
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/label"
 	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/google/go-cmp/cmp"
+	"github.com/uhvesta/bazel-gazelle/label"
 )
 
 func TestExprFromValue(t *testing.T) {

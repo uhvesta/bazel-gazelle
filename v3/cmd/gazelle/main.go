@@ -13,13 +13,13 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/resolve"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
-	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
-	"github.com/bazelbuild/bazel-gazelle/v3/run"
-	v3walk "github.com/bazelbuild/bazel-gazelle/v3/walk"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/resolve"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/v3/internal/vfs"
+	v3language "github.com/uhvesta/bazel-gazelle/v3/language"
+	"github.com/uhvesta/bazel-gazelle/v3/run"
+	v3walk "github.com/uhvesta/bazel-gazelle/v3/walk"
 )
 
 type command int

@@ -19,8 +19,8 @@ import (
 	"fmt"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 // FixLoads removes loads of unused go rules and adds loads of newly used rules.
@@ -225,7 +225,7 @@ func CheckGazelleLoaded(f *rule.File) error {
 	}
 	return fmt.Errorf(`%s: error: bazel_gazelle is not declared in WORKSPACE.
 Without this repository, Gazelle cannot safely modify the WORKSPACE file.
-See the instructions at https://github.com/bazelbuild/bazel-gazelle.
+See the instructions at https://github.com/uhvesta/bazel-gazelle.
 If the bazel_gazelle is declared inside a macro, you can suppress this error
 by adding a comment like this to WORKSPACE:
     # gazelle:repo bazel_gazelle

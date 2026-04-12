@@ -27,10 +27,10 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/internal/wspace"
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/pathtools"
 	"github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/internal/wspace"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/pathtools"
 )
 
 const usageMessage = `usage: move_labels [-repo_root=root] [-from=dir] -to=dir

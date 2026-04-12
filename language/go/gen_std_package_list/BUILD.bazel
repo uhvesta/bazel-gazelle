@@ -12,7 +12,7 @@ go_binary(
 go_library(
     name = "gen_std_package_list_lib",
     srcs = ["gen_std_package_list.go"],
-    importpath = "github.com/bazelbuild/bazel-gazelle/language/go/gen_std_package_list",
+    importpath = "github.com/uhvesta/bazel-gazelle/language/go/gen_std_package_list",
     visibility = ["//visibility:private"],
 )
 

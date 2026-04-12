@@ -14,7 +14,7 @@ go_library(
         "main.go",
         "update-repos.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/cmd/gazelle",
+    importpath = "github.com/uhvesta/bazel-gazelle/cmd/gazelle",
     tags = ["manual"],
     visibility = ["//visibility:public"],
     deps = [

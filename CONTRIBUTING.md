@@ -23,12 +23,12 @@ the one above, the
 
 1. Explain your idea and discuss your plan with members of the team. The best
    way to do this is to create
-   an [issue](https://github.com/bazelbuild/bazel-gazelle/issues) or comment on an
+   an [issue](https://github.com/uhvesta/bazel-gazelle/issues) or comment on an
    existing issue.
 1. Prepare a git commit with your change. Don't forget to
-   add [tests](https://github.com/bazelbuild/bazel-gazelle/tree/master/tests). 
+   add [tests](https://github.com/uhvesta/bazel-gazelle/tree/master/tests). 
    Run the existing tests with `bazel test //...`. Update
-   [README.rst](https://github.com/bazelbuild/bazel-gazelle/blob/master/README.rst)
+   [README.rst](https://github.com/uhvesta/bazel-gazelle/blob/master/README.rst)
    if appropriate.
 1. [Create a pull request](https://help.github.com/articles/creating-a-pull-request/).
    This will start the code review process. **All submissions, including

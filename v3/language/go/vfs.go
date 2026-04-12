@@ -7,7 +7,7 @@ import (
 	"path"
 	"path/filepath"
 
-	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
+	"github.com/uhvesta/bazel-gazelle/v3/internal/vfs"
 )
 
 var activeRepo *vfs.Snapshot

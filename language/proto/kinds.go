@@ -16,7 +16,7 @@ limitations under the License.
 package proto
 
 import (
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 var protoKinds = map[string]rule.KindInfo{

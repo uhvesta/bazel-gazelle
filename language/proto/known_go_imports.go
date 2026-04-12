@@ -3,7 +3,7 @@
 
 package proto
 
-import "github.com/bazelbuild/bazel-gazelle/label"
+import "github.com/uhvesta/bazel-gazelle/label"
 
 var knownGoProtoImports = map[string]label.Label{
 	"github.com/golang/protobuf/ptypes/any":               {Repo: "com_github_golang_protobuf", Pkg: "ptypes/any", Name: "any"},

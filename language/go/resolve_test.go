@@ -21,12 +21,12 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/pathtools"
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/resolve"
-	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/pathtools"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/resolve"
+	"github.com/uhvesta/bazel-gazelle/rule"
 	"golang.org/x/tools/go/vcs"
 )
 
@@ -434,7 +434,7 @@ go_library(
 go_library(
     name = "go_default_library",
     _imports = [
-        "github.com/bazelbuild/bazel-gazelle/language",
+        "github.com/uhvesta/bazel-gazelle/language",
         "github.com/bazelbuild/rules_go/go/tools/bazel",
     ],
 )

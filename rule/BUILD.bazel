@@ -13,7 +13,7 @@ go_library(
         "types.go",
         "value.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/rule",
+    importpath = "github.com/uhvesta/bazel-gazelle/rule",
     visibility = ["//visibility:public"],
     deps = [
         "//label",

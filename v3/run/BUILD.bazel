@@ -3,7 +3,7 @@ load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 go_library(
     name = "run",
     srcs = ["run.go"],
-    importpath = "github.com/bazelbuild/bazel-gazelle/v3/run",
+    importpath = "github.com/uhvesta/bazel-gazelle/v3/run",
     visibility = ["//visibility:public"],
     deps = [
         "//config",

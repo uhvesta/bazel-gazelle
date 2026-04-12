@@ -21,7 +21,7 @@ limitations under the License.
 // Go rules support the flags -build_tags, -go_prefix, and -external.
 // They also support the directives # gazelle:build_tags, # gazelle:prefix,
 // and # gazelle:importmap_prefix. See
-// https://github.com/bazelbuild/bazel-gazelle/blob/master/README.rst#directives
+// https://github.com/uhvesta/bazel-gazelle/blob/master/README.rst#directives
 // for information on these.
 //
 // # Rule generation
@@ -61,10 +61,10 @@ import (
 
 	"golang.org/x/mod/modfile"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
-	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/v3/internal/vfs"
+	v3language "github.com/uhvesta/bazel-gazelle/v3/language"
 )
 
 const goName = "go"

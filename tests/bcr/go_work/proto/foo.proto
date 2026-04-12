@@ -1,6 +1,6 @@
 syntax = "proto3";
 
-option go_package = "github.com/bazelbuild/bazel-gazelle/tests/bcr/proto/foo";
+option go_package = "github.com/uhvesta/bazel-gazelle/tests/bcr/proto/foo";
 
 import "google/protobuf/timestamp.proto";
 import "google/protobuf/type.proto";

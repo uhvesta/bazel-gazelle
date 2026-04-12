@@ -50,7 +50,7 @@ go_library(
         "utils.go",
         "work.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/language/go",
+    importpath = "github.com/uhvesta/bazel-gazelle/language/go",
     visibility = ["//visibility:public"],
     deps = [
         "//config",

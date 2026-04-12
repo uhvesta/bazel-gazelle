@@ -23,8 +23,8 @@ import (
 	"testing"
 	"time"
 
-	"github.com/bazelbuild/bazel-gazelle/testtools"
 	"github.com/bazelbuild/rules_go/go/runfiles"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 var (

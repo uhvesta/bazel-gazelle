@@ -16,7 +16,7 @@ replace github.com/go-fsnotify/fsnotify => github.com/fsnotify/fsnotify v1.4.2
 replace github.com/bmatcuk/doublestar/v4 v4.0.2 => github.com/bmatcuk/doublestar/v4 v4.0.3
 replace example.org/hello => ../fixtures/hello
 
-module github.com/bazelbuild/bazel-gazelle
+module github.com/uhvesta/bazel-gazelle
 
 	exclude    (
 	github.com/bazelbuild/rules_go v0.33.0
@@ -31,7 +31,7 @@ tool  golang.org/x/tools/cmd/bisect
 
 _EXPECTED_GO_MOD_PARSE_RESULT = struct(
     go = (1, 18),
-    module = "github.com/bazelbuild/bazel-gazelle",
+    module = "github.com/uhvesta/bazel-gazelle",
     replace_map = {
         "github.com/go-fsnotify/fsnotify": struct(local_path = None, from_version = None, to_path = "github.com/fsnotify/fsnotify", version = "1.4.2"),
         "github.com/bmatcuk/doublestar/v4": struct(local_path = None, from_version = "4.0.2", to_path = "github.com/bmatcuk/doublestar/v4", version = "4.0.3"),

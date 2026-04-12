@@ -26,9 +26,9 @@ package test_loads_from_flag
 import (
 	"flag"
 	"fmt"
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/language"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/rule"
 	"strings"
 )
 

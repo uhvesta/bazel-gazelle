@@ -19,10 +19,10 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/merger"
-	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/google/go-cmp/cmp"
+	"github.com/uhvesta/bazel-gazelle/merger"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 func TestFixLoads(t *testing.T) {
@@ -257,12 +257,12 @@ foo_binary(
 `,
 		},
 		"assignment expr rhs list": {
-    		input: `foo_binary(
+			input: `foo_binary(
     name = "a",
     field = [magic_macro],
 )
 `,
-    		want: `load("@bar", "magic_macro")
+			want: `load("@bar", "magic_macro")
 load("@foo", "foo_binary")
 
 foo_binary(

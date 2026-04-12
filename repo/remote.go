@@ -29,8 +29,8 @@ import (
 	"strings"
 	"sync"
 
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/pathtools"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/pathtools"
 	"golang.org/x/mod/modfile"
 	"golang.org/x/tools/go/vcs"
 )
@@ -185,7 +185,7 @@ func NewRemoteCache(knownRepos []Repo) (r *RemoteCache, cleanup func() error) {
 		}
 		// Avoid adding the semver-less path for this module if there
 		// is another known module which already covers this path.
-		// See https://github.com/bazelbuild/bazel-gazelle/issues/1595.
+		// See https://github.com/uhvesta/bazel-gazelle/issues/1595.
 		found := false
 		for prefix := newPath; prefix != "." && prefix != "/"; prefix = path.Dir(prefix) {
 			if _, ok := r.root.cache[prefix]; ok {

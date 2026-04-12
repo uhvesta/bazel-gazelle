@@ -22,7 +22,7 @@ import (
 	"reflect"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 func TestCommonConfigurerFlags(t *testing.T) {

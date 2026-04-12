@@ -6,7 +6,7 @@ go_library(
         "platform_lib_unix.go",
         "platform_lib_windows.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/tests/bcr/go_mod/pkg",
+    importpath = "github.com/uhvesta/bazel-gazelle/tests/bcr/go_mod/pkg",
     visibility = ["//visibility:public"],
     deps = select({
         "@my_rules_go//go/platform:aix": [

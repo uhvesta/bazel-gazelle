@@ -23,12 +23,12 @@ import (
 	"path"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/pathtools"
-	"github.com/bazelbuild/bazel-gazelle/resolve"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/pathtools"
+	"github.com/uhvesta/bazel-gazelle/resolve"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	v3language "github.com/uhvesta/bazel-gazelle/v3/language"
 )
 
 func (*goLang) Imports(args v3language.ImportsArgs) []resolve.ImportSpec {
@@ -153,8 +153,8 @@ func ResolveGo(c *config.Config, ix *resolve.RuleIndex, imp string, from label.L
 		if pathtools.HasPrefix(imp, "github.com/bazelbuild/rules_go") {
 			pkg := pathtools.TrimPrefix(imp, "github.com/bazelbuild/rules_go")
 			return label.New("io_bazel_rules_go", pkg, "go_default_library"), nil
-		} else if pathtools.HasPrefix(imp, "github.com/bazelbuild/bazel-gazelle") {
-			pkg := pathtools.TrimPrefix(imp, "github.com/bazelbuild/bazel-gazelle")
+		} else if pathtools.HasPrefix(imp, "github.com/uhvesta/bazel-gazelle") {
+			pkg := pathtools.TrimPrefix(imp, "github.com/uhvesta/bazel-gazelle")
 			return label.New("bazel_gazelle", pkg, "go_default_library"), nil
 		}
 	}

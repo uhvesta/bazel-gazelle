@@ -23,9 +23,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	"github.com/bazelbuild/bazel-gazelle/testtools"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 func TestFindExternalRepo(t *testing.T) {

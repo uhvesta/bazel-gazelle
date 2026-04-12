@@ -24,7 +24,7 @@ import (
 	"os"
 	"os/signal"
 
-	"github.com/bazel-contrib/bazel-gazelle/v2/cmd/gazelle/update"
+	"github.com/uhvesta/bazel-gazelle/v2/cmd/gazelle/update"
 )
 
 func main() {

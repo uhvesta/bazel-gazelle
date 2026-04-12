@@ -3,7 +3,7 @@ package proto
 import (
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
+	"github.com/uhvesta/bazel-gazelle/v3/internal/vfs"
 )
 
 func TestRegisterParsers(t *testing.T) {

@@ -22,7 +22,7 @@ def _gazelle_v3_binary_impl(ctx):
 package main
 
 import (
-\tv3language "github.com/bazelbuild/bazel-gazelle/v3/language"
+\tv3language "github.com/uhvesta/bazel-gazelle/v3/language"
 
 \t{lang_imports}
 )

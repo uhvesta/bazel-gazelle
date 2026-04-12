@@ -16,10 +16,10 @@ limitations under the License.
 package main
 
 import (
-	"github.com/bazelbuild/bazel-gazelle/language"
-	"github.com/bazelbuild/bazel-gazelle/language/bazel/visibility"
-	golang "github.com/bazelbuild/bazel-gazelle/language/go"
-	"github.com/bazelbuild/bazel-gazelle/language/proto"
+	"github.com/uhvesta/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/language/bazel/visibility"
+	golang "github.com/uhvesta/bazel-gazelle/language/go"
+	"github.com/uhvesta/bazel-gazelle/language/proto"
 )
 
 var languages = []language.Language{

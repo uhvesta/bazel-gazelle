@@ -1,5 +1,5 @@
 // This will stop go mod from descending into this directory.
-module github.com/bazelbuild/bazel-gazelle/tests/bcr/go_mod
+module github.com/uhvesta/bazel-gazelle/tests/bcr/go_mod
 
 go 1.24.12
 
@@ -27,7 +27,7 @@ require (
 
 require (
 	github.com/BurntSushi/toml v1.4.1-0.20240526193622-a339e1f7089c // indirect
-	github.com/bazelbuild/bazel-gazelle v0.30.0 // indirect
+	github.com/uhvesta/bazel-gazelle v0.30.0 // indirect
 	github.com/davecgh/go-spew v1.1.1 // indirect
 	github.com/google/go-cmp v0.7.0 // indirect
 	github.com/pmezard/go-difflib v1.0.0 // indirect

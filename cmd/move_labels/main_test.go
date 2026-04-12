@@ -19,7 +19,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/testtools"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 func TestMoveLabels(t *testing.T) {

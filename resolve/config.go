@@ -21,9 +21,9 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 // FindRuleWithOverride searches the current configuration for user-specified
@@ -74,7 +74,7 @@ func (o regexpOverrideSpec) resolveRegexpDep(imp ImportSpec) label.Label {
 	// ReplaceAllString() should be run on the string to substitute in the
 	// correct replacement strings to build the label.
 	if !strings.Contains(o.dep.String(), "$") {
-	    return o.dep
+		return o.dep
 	}
 	resolvedDepWithRegex := o.ImpRegex.ReplaceAllString(imp.Imp, o.dep.String())
 	resolvedLabel, err := label.Parse(resolvedDepWithRegex)

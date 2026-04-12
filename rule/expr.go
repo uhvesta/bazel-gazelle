@@ -20,8 +20,8 @@ import (
 	"log"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/label"
 	bzl "github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/label"
 )
 
 // MapExprStrings applies a function to string sub-expressions within e.

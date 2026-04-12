@@ -21,11 +21,11 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/language"
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	"github.com/bazelbuild/bazel-gazelle/testtools"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 func TestImports(t *testing.T) {
@@ -42,7 +42,7 @@ func TestImports(t *testing.T) {
 				{
 					Path: "go.mod",
 					Content: `
-module github.com/bazelbuild/bazel-gazelle
+module github.com/uhvesta/bazel-gazelle
 
 require (
 	github.com/BurntSushi/toml v0.3.1 // indirect
@@ -165,7 +165,7 @@ go_repository(
 				{
 					Path: "go.mod",
 					Content: `
-module github.com/bazelbuild/bazel-gazelle
+module github.com/uhvesta/bazel-gazelle
 
 require (
 	definitely.doesnotexist/ever v0.1.0
@@ -194,7 +194,7 @@ definitely.doesnotexist/ever v0.1.0/go.mod h1:HI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqw
 				{
 					Path: "go.mod",
 					Content: `
-module github.com/bazelbuild/bazel-gazelle
+module github.com/uhvesta/bazel-gazelle
 
 require (
 	definitely.doesnotexist/ever v0.1.0
@@ -225,7 +225,7 @@ definitely.doesnotexist/ever v0.1.0/go.mod h1:HI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqw
 				{
 					Path: "go.mod",
 					Content: `
-module github.com/bazelbuild/bazel-gazelle
+module github.com/uhvesta/bazel-gazelle
 
 require (
 	definitely.doesnotexist/ever v0.1.0
@@ -254,7 +254,7 @@ definitely.doesnotexist/ever v0.1.0/go.mod h1:HI93XBmqTisBFMUTm0b8Fm+jr3Dg1NNxqw
 				{
 					Path: "go.mod",
 					Content: `
-module github.com/bazelbuild/bazel-gazelle
+module github.com/uhvesta/bazel-gazelle
 
 require (
 	definitely.doesnotexist/ever v0.1.0

@@ -190,7 +190,7 @@ func TestRemote(t *testing.T) {
 	}{
 		{
 			desc:      "unstubbed_remote",
-			root:      "github.com/bazelbuild/bazel-gazelle",
+			root:      "github.com/uhvesta/bazel-gazelle",
 			wantError: true, // stub should return an error
 		}, {
 			desc: "known_repo",
@@ -246,7 +246,7 @@ func TestHead(t *testing.T) {
 	}{
 		{
 			desc:      "unstubbed_remote",
-			remote:    "https://github.com/bazelbuild/bazel-gazelle",
+			remote:    "https://github.com/uhvesta/bazel-gazelle",
 			vcs:       "git",
 			wantError: true, // stub should return an error
 		},

@@ -7,7 +7,7 @@ go_library(
         "lang.go",
         "resolve.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/language/bazel/visibility",
+    importpath = "github.com/uhvesta/bazel-gazelle/language/bazel/visibility",
     visibility = ["//visibility:public"],
     deps = [
         "//config",

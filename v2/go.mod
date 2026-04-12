@@ -1,4 +1,4 @@
-module github.com/bazel-contrib/bazel-gazelle/v2
+module github.com/uhvesta/bazel-gazelle/v2
 
 go 1.24.12
 

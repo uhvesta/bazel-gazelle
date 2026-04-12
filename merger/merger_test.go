@@ -19,11 +19,11 @@ import (
 	"path/filepath"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/language"
-	golang "github.com/bazelbuild/bazel-gazelle/language/go"
-	"github.com/bazelbuild/bazel-gazelle/language/proto"
-	"github.com/bazelbuild/bazel-gazelle/merger"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/language"
+	golang "github.com/uhvesta/bazel-gazelle/language/go"
+	"github.com/uhvesta/bazel-gazelle/language/proto"
+	"github.com/uhvesta/bazel-gazelle/merger"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 // should fix

@@ -17,7 +17,7 @@ limitations under the License.
 // It generates proto_library rules only (not go_proto_library or any other
 // language-specific implementations).
 //
-// Configuration
+// # Configuration
 //
 // Configuration is largely controlled by Mode. In disable mode, proto rules are
 // left alone (neither generated nor deleted). In legacy mode, filegroups are
@@ -29,7 +29,7 @@ limitations under the License.
 // For example, go uses Mode to determine whether to generate go_proto_library
 // rules and ignore static .pb.go files.
 //
-// Rule generation
+// # Rule generation
 //
 // Currently, Gazelle generates at most one proto_library per directory. Protos
 // in the same package are grouped together into a proto_library. If there are
@@ -41,7 +41,7 @@ limitations under the License.
 // proto or the package. For example, for foo/bar/baz.proto, a proto_library
 // rule will be generated named //foo/bar:bar_proto.
 //
-// Dependency resolution
+// # Dependency resolution
 //
 // proto_library rules are indexed by their srcs attribute. Gazelle attempts
 // to resolve proto imports (e.g., import foo/bar/bar.proto) to the
@@ -59,7 +59,7 @@ limitations under the License.
 // @com_google_protobuf.
 package proto
 
-import "github.com/bazelbuild/bazel-gazelle/language"
+import "github.com/uhvesta/bazel-gazelle/language"
 
 const protoName = "proto"
 

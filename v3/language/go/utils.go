@@ -29,8 +29,8 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 // goListModules invokes "go list" in a directory containing a go.mod file.

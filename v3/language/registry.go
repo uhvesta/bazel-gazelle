@@ -3,8 +3,8 @@ package language
 import (
 	"fmt"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/v3/internal/vfs"
 )
 
 // RegisterParsers registers parsers for all provided languages.

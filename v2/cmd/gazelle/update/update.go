@@ -34,17 +34,17 @@ import (
 	"strings"
 	"syscall"
 
-	"github.com/bazel-contrib/bazel-gazelle/v2/internal/wspace"
-	"github.com/bazelbuild/bazel-gazelle/config"
-	gzflag "github.com/bazelbuild/bazel-gazelle/flag"
-	"github.com/bazelbuild/bazel-gazelle/label"
-	"github.com/bazelbuild/bazel-gazelle/language"
-	"github.com/bazelbuild/bazel-gazelle/merger"
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/resolve"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	"github.com/bazelbuild/bazel-gazelle/walk"
 	"github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/config"
+	gzflag "github.com/uhvesta/bazel-gazelle/flag"
+	"github.com/uhvesta/bazel-gazelle/label"
+	"github.com/uhvesta/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/merger"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/resolve"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/v2/internal/wspace"
+	"github.com/uhvesta/bazel-gazelle/walk"
 )
 
 // BazelModuleVersion is the version of the Gazelle Bazel module. It may be used

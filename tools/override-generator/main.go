@@ -11,9 +11,9 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/repo"
-	"github.com/bazelbuild/bazel-gazelle/rule"
 	"github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/repo"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 const (
@@ -178,7 +178,7 @@ func goRepositoryToOverrideSet(r *rule.Rule, defaultBuildFileGeneration, default
 		}
 
 		attrValue := r.Attr(attr)
-		
+
 		// proto mode and build file generation require special handling.
 		if attrValue == nil || attr == _buildFileProtoModeAttr || attr == _buildFileGenerationAttr {
 			continue
@@ -229,7 +229,7 @@ func applyBuildFileGeneration(r *rule.Rule, set overrideSet, userDefaultGenerati
 	ruleGeneration := r.AttrString(_buildFileGenerationAttr)
 	o, ok := set[_gazelleOverride]
 	if !ok {
-	 	if ruleGeneration == "" || ruleGeneration == userDefaultGeneration {
+		if ruleGeneration == "" || ruleGeneration == userDefaultGeneration {
 			return
 		}
 		set[_gazelleOverride] = newGenerationOverride(r.AttrString("importpath"), ruleGeneration)
@@ -244,7 +244,6 @@ func applyBuildFileGeneration(r *rule.Rule, set overrideSet, userDefaultGenerati
 	set[_gazelleOverride] = o
 	return
 }
-
 
 func newGenerationOverride(path, ruleGeneration string) *rule.Rule {
 	override := rule.NewRule(_gazelleOverride, "")
@@ -263,9 +262,9 @@ func applyBuildFileProtoMode(r *rule.Rule, set overrideSet, userDefaultProtoMode
 		if protoMode == "" || protoMode == userDefaultProtoMode {
 			return
 		}
-		
+
 		set[_gazelleOverride] = newProtoOverride(r.AttrString("importpath"), protoMode)
-		
+
 		// Since it's a new override, we need to apply build_file_generation again.
 		applyBuildFileGeneration(r, set, userDefaultGeneration)
 		return
@@ -276,8 +275,8 @@ func applyBuildFileProtoMode(r *rule.Rule, set overrideSet, userDefaultProtoMode
 	if protoMode == "" {
 		protoMode = userDefaultProtoMode
 	}
-	
-	safeAppendDirective(gazelleOverride, "gazelle:proto " + protoMode)
+
+	safeAppendDirective(gazelleOverride, "gazelle:proto "+protoMode)
 	set[_gazelleOverride] = gazelleOverride
 	return
 }
@@ -293,11 +292,11 @@ func newProtoOverride(path, protoMode string) *rule.Rule {
 func safeAppendDirective(gazelleOverride *rule.Rule, directive string) {
 	directives := gazelleOverride.AttrStrings(_directivesAttr)
 	directiveMap := make(map[string]struct{})
-	for _, d := range directives{
+	for _, d := range directives {
 		directiveMap[d] = struct{}{}
 	}
 	if _, ok := directiveMap[directive]; ok {
-		return 
+		return
 	}
 	directives = append(directives, directive)
 	gazelleOverride.SetAttr(_directivesAttr, directives)

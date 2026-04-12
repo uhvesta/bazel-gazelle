@@ -2,7 +2,7 @@ syntax = "proto3";
 
 package proto.example.other;
 
-option go_package = "github.com/bazelbuild/bazel-gazelle/fix_package_proto_name_match/example/other";
+option go_package = "github.com/uhvesta/bazel-gazelle/fix_package_proto_name_match/example/other";
 
 import "google/type/date.proto";
 

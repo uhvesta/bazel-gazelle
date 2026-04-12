@@ -26,8 +26,8 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/pathtools"
 	bzl "github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/pathtools"
 )
 
 // A Label represents a label of a build target in Bazel. Labels have three

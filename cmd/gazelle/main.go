@@ -25,9 +25,9 @@ import (
 	"log"
 	"os"
 
-	"github.com/bazel-contrib/bazel-gazelle/v2/cmd/gazelle/update"
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/v2/cmd/gazelle/update"
 )
 
 type command int

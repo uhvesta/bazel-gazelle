@@ -24,8 +24,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/testtools"
 	"github.com/bazelbuild/rules_go/go/tools/bazel_testing"
+	"github.com/uhvesta/bazel-gazelle/testtools"
 )
 
 var testArgs = bazel_testing.Args{

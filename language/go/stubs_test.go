@@ -24,7 +24,7 @@ func init() {
 
 func goListModulesStub(dir string) ([]byte, error) {
 	return []byte(`{
-	"Path": "github.com/bazelbuild/bazel-gazelle",
+	"Path": "github.com/uhvesta/bazel-gazelle",
 	"Main": true,
 	"Dir": "/tmp/tmp.XxZ9HCw1Mq",
 	"GoMod": "/tmp/tmp.XxZ9HCw1Mq/go.mod"

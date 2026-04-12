@@ -39,7 +39,7 @@ def _gazelle_binary_impl(ctx):
 package main
 
 import (
-	"github.com/bazelbuild/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/language"
 
 	{lang_imports}
 )
@@ -139,7 +139,7 @@ gazelle_binary = rule(**_gazelle_binary_kwargs)
 def gazelle_binary_wrapper(**kwargs):
     for key in ("goos", "goarch", "static", "msan", "race", "pure", "strip", "debug", "linkmode", "gotags"):
         if key in kwargs:
-            fail("gazelle_binary attribute '%s' is no longer supported (https://github.com/bazelbuild/bazel-gazelle/issues/803)" % key)
+            fail("gazelle_binary attribute '%s' is no longer supported (https://github.com/uhvesta/bazel-gazelle/issues/803)" % key)
     gazelle_binary(**kwargs)
 
 def _import_alias(importpath):

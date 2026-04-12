@@ -22,8 +22,8 @@ import (
 	"os"
 	"path/filepath"
 
-	"github.com/bazelbuild/bazel-gazelle/label"
 	"github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/label"
 )
 
 // ExtractModuleToApparentNameMapping collects the mapping of module names (e.g. "rules_go") to

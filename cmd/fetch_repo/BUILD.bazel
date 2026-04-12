@@ -11,7 +11,7 @@ go_library(
         "module.go",
         "vcs.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/cmd/fetch_repo",
+    importpath = "github.com/uhvesta/bazel-gazelle/cmd/fetch_repo",
     visibility = ["//visibility:private"],
     deps = [
         "@org_golang_x_mod//sumdb/dirhash",

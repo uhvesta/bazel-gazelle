@@ -21,14 +21,14 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/language"
-	"github.com/bazelbuild/bazel-gazelle/language/proto"
-	"github.com/bazelbuild/bazel-gazelle/resolve"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	"github.com/bazelbuild/bazel-gazelle/testtools"
-	"github.com/bazelbuild/bazel-gazelle/walk"
 	"github.com/google/go-cmp/cmp"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/language/proto"
+	"github.com/uhvesta/bazel-gazelle/resolve"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/testtools"
+	"github.com/uhvesta/bazel-gazelle/walk"
 )
 
 func testConfig(t *testing.T, args ...string) (*config.Config, []language.Language, []config.Configurer) {

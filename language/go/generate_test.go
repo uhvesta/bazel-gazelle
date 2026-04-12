@@ -23,15 +23,15 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/language"
-	"github.com/bazelbuild/bazel-gazelle/language/proto"
-	"github.com/bazelbuild/bazel-gazelle/merger"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	"github.com/bazelbuild/bazel-gazelle/walk"
 	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/bazelbuild/rules_go/go/tools/bazel"
 	"github.com/google/go-cmp/cmp"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/language/proto"
+	"github.com/uhvesta/bazel-gazelle/merger"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/walk"
 )
 
 func TestGenerateRules(t *testing.T) {
@@ -175,7 +175,6 @@ go_test(name = "foo_test")
 		t.Errorf("got:\n%s\nwant:\n%s", got, want)
 	}
 }
-
 
 // Test that no data attribute is added for an empty testdata subdirectory
 func TestGenerateRulesEmptyTestdata(t *testing.T) {

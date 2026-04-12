@@ -13,7 +13,7 @@ gazelle_binary(
 go_library(
     name = "gazellebinarytest",
     srcs = ["xlang.go"],
-    importpath = "github.com/bazelbuild/bazel-gazelle/internal/gazellebinarytest",
+    importpath = "github.com/uhvesta/bazel-gazelle/internal/gazellebinarytest",
     visibility = ["//:__subpackages__"],
     deps = [
         "//config",

@@ -18,10 +18,10 @@ package golang
 import (
 	"log"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	"github.com/bazelbuild/bazel-gazelle/rule"
-	proto "github.com/bazelbuild/bazel-gazelle/v3/language/proto"
 	bzl "github.com/bazelbuild/buildtools/build"
+	"github.com/uhvesta/bazel-gazelle/config"
+	"github.com/uhvesta/bazel-gazelle/rule"
+	proto "github.com/uhvesta/bazel-gazelle/v3/language/proto"
 )
 
 func (*goLang) Fix(c *config.Config, f *rule.File) {

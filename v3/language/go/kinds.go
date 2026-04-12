@@ -15,7 +15,7 @@ limitations under the License.
 
 package golang
 
-import "github.com/bazelbuild/bazel-gazelle/rule"
+import "github.com/uhvesta/bazel-gazelle/rule"
 
 var goKinds = map[string]rule.KindInfo{
 	"alias": {

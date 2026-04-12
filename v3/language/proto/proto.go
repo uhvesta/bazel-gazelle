@@ -10,8 +10,8 @@ import (
 	"strconv"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/v3/internal/vfs"
-	v3language "github.com/bazelbuild/bazel-gazelle/v3/language"
+	"github.com/uhvesta/bazel-gazelle/v3/internal/vfs"
+	v3language "github.com/uhvesta/bazel-gazelle/v3/language"
 )
 
 const protoName = "proto"

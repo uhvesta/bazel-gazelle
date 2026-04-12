@@ -11,11 +11,11 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/config"
-	gzflag "github.com/bazelbuild/bazel-gazelle/flag"
-	"github.com/bazelbuild/bazel-gazelle/rule"
 	bzl "github.com/bazelbuild/buildtools/build"
 	"github.com/bmatcuk/doublestar/v4"
+	"github.com/uhvesta/bazel-gazelle/config"
+	gzflag "github.com/uhvesta/bazel-gazelle/flag"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 type generationModeType string

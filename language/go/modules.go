@@ -22,7 +22,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/language"
+	"github.com/uhvesta/bazel-gazelle/language"
 )
 
 func importReposFromModules(args language.ImportReposArgs) language.ImportReposResult {

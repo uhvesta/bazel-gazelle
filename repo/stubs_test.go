@@ -20,7 +20,7 @@ import (
 	"fmt"
 	"os"
 
-	"github.com/bazelbuild/bazel-gazelle/pathtools"
+	"github.com/uhvesta/bazel-gazelle/pathtools"
 	"golang.org/x/tools/go/vcs"
 )
 

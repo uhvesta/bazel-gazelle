@@ -6,7 +6,7 @@ go_library(
         "config.go",
         "walk.go",
     ],
-    importpath = "github.com/bazelbuild/bazel-gazelle/v3/walk",
+    importpath = "github.com/uhvesta/bazel-gazelle/v3/walk",
     visibility = ["//visibility:public"],
     deps = [
         "//config",

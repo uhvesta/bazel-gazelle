@@ -6,7 +6,7 @@ import (
 	"sort"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 func stringify(m map[string]struct{}) string {
@@ -31,7 +31,7 @@ func main() {
 	}
 
 	// Prevent `go generate` from picking this up.
-	code := fmt.Sprintf("//" + `go:generate bazel run --run_under=cp //language/go:gen_platform_info.go ./platform_info.go
+	code := fmt.Sprintf("//"+`go:generate bazel run --run_under=cp //language/go:gen_platform_info.go ./platform_info.go
 
 package golang
 

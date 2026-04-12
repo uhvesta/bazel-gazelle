@@ -30,7 +30,7 @@ import (
 	"path/filepath"
 	"strings"
 
-	"github.com/bazelbuild/bazel-gazelle/rule"
+	"github.com/uhvesta/bazel-gazelle/rule"
 )
 
 const gazelleFromDirectiveKey = "_gazelle_from_directive"
@@ -88,7 +88,7 @@ func (l *loader) add(file *rule.File, repo *rule.Rule) error {
 	if name == "" {
 		return nil
 	}
-	
+
 	if i, ok := l.repoIndexMap[repo.Name()]; ok {
 		if !IsFromDirective(l.repos[i]) && !IsFromDirective(repo) {
 			return fmt.Errorf("found duplicate repo %q", repo.Name())
@@ -117,7 +117,7 @@ func (l *loader) visit(file, function string) bool {
 }
 
 // ListRepositories extracts metadata about repositories declared in a
-// file. If there are duplicate rules that are both not defined from a 
+// file. If there are duplicate rules that are both not defined from a
 // directive, it will fail.
 func ListRepositories(workspace *rule.File) (repos []*rule.Rule, repoFileMap map[string]*rule.File, err error) {
 	l := &loader{
@@ -126,7 +126,7 @@ func ListRepositories(workspace *rule.File) (repos []*rule.Rule, repoFileMap map
 		repoFileMap:  make(map[string]*rule.File),
 		visited:      make(map[macroKey]struct{}),
 	}
-	
+
 	for _, repo := range workspace.Rules {
 		if err := l.add(workspace, repo); err != nil {
 			return nil, nil, err

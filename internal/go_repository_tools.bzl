@@ -92,9 +92,9 @@ def _go_repository_tools_impl(ctx):
         "-w",
         "-s",
         "-X",
-        "github.com/bazel-contrib/bazel-gazelle/v2/cmd/gazelle/update.BazelModuleVersion=" + gazelle_version,
+        "github.com/uhvesta/bazel-gazelle/v2/cmd/gazelle/update.BazelModuleVersion=" + gazelle_version,
         "-X",
-        "github.com/bazel-contrib/bazel-gazelle/v2/cmd/gazelle/update.IsBazelModule=" + str(ctx.attr.is_bazel_module),
+        "github.com/uhvesta/bazel-gazelle/v2/cmd/gazelle/update.IsBazelModule=" + str(ctx.attr.is_bazel_module),
     ]
     args = [
         go_tool,
@@ -105,9 +105,9 @@ def _go_repository_tools_impl(ctx):
         " ".join(ldflags),
         "-trimpath",
         "-buildvcs=false",
-        "github.com/bazel-contrib/bazel-gazelle/v2/cmd/gazelle",
-        "github.com/bazelbuild/bazel-gazelle/cmd/fetch_repo",
-        "github.com/bazelbuild/bazel-gazelle/cmd/generate_repo_config",
+        "github.com/uhvesta/bazel-gazelle/v2/cmd/gazelle",
+        "github.com/uhvesta/bazel-gazelle/cmd/fetch_repo",
+        "github.com/uhvesta/bazel-gazelle/cmd/generate_repo_config",
     ]
     result = env_execute(ctx, args, environment = env, working_directory = gazelle_dir)
     if result.return_code:
