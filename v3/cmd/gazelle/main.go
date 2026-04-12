@@ -1,10 +1,13 @@
 package main
 
 import (
+	"bufio"
+	"compress/gzip"
 	"crypto/sha256"
 	"errors"
 	"flag"
 	"fmt"
+	"io"
 	"log"
 	"os"
 	"path/filepath"
@@ -59,7 +62,9 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 	configurers := makeConfigurers(langs)
 	fs := flag.NewFlagSet("gazelle-v3", flag.ContinueOnError)
 	var timings bool
+	var compressState bool
 	fs.BoolVar(&timings, "timings", false, "print per-phase v3 run timings to stderr")
+	fs.BoolVar(&compressState, "compress_state", false, "write the saved v3 state file with gzip compression")
 	fs.Usage = func() {
 		_ = help()
 	}
@@ -118,7 +123,7 @@ func runCLI(wd string, args []string, langs []v3language.Language) error {
 	if err != nil {
 		return err
 	}
-	return saveSnapshot(statePath(cfg.RepoRoot), result.Snapshot)
+	return saveSnapshot(statePath(cfg.RepoRoot), result.Snapshot, compressState)
 }
 
 func makeConfigurers(langs []v3language.Language) []config.Configurer {
@@ -147,6 +152,7 @@ Notes:
   v3 currently runs on the whole repository.
   Bare invocation is the same as 'run'.
   Use -timings to print per-phase timing information.
+  Use -compress_state to gzip the saved v3 state file.
   run saves VFS state in the OS cache dir for later rerun commands.
   rerun expects changed/new/deleted repo-relative paths.
   Watch mode is not wired into this CLI yet.
@@ -192,7 +198,7 @@ func statePath(repoRoot string) string {
 	return filepath.Join(cacheDir, "bazel-gazelle", "v3", fmt.Sprintf("%x.json", sum[:8]))
 }
 
-func saveSnapshot(path string, snapshot *vfs.Snapshot) error {
+func saveSnapshot(path string, snapshot *vfs.Snapshot, compress bool) error {
 	if snapshot == nil {
 		return nil
 	}
@@ -204,7 +210,13 @@ func saveSnapshot(path string, snapshot *vfs.Snapshot) error {
 		return err
 	}
 	defer f.Close()
-	return snapshot.Save(f)
+	var w io.Writer = f
+	if compress {
+		zw := gzip.NewWriter(f)
+		defer zw.Close()
+		w = zw
+	}
+	return snapshot.Save(w)
 }
 
 func loadSnapshot(path string, registry *vfs.Registry) (*vfs.Snapshot, error) {
@@ -213,7 +225,21 @@ func loadSnapshot(path string, registry *vfs.Registry) (*vfs.Snapshot, error) {
 		return nil, err
 	}
 	defer f.Close()
-	return vfs.LoadSnapshot(f, registry)
+	r := bufio.NewReader(f)
+	magic, err := r.Peek(2)
+	if err != nil && !errors.Is(err, io.EOF) {
+		return nil, err
+	}
+	var reader io.Reader = r
+	if len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+		zr, err := gzip.NewReader(r)
+		if err != nil {
+			return nil, err
+		}
+		defer zr.Close()
+		reader = zr
+	}
+	return vfs.LoadSnapshot(reader, registry)
 }
 
 func changesFromArgs(args []string) []vfs.Change {

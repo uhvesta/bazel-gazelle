@@ -235,6 +235,99 @@ func TestWalkIgnoresUnsupportedGenerationModeDirective(t *testing.T) {
 	}
 }
 
+func TestFilterChangesHonorsBazelIgnoreAndExclude(t *testing.T) {
+	root := t.TempDir()
+	writeWalkFile(t, filepath.Join(root, ".bazelignore"), "ignored\n")
+	writeWalkFile(t, filepath.Join(root, "BUILD.bazel"), "# gazelle:exclude skipped/**\n")
+	writeWalkFile(t, filepath.Join(root, "kept", "BUILD.bazel"), "")
+
+	repo, err := buildFrozenSnapshot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+
+	cr := &Configurer{}
+	fs := flag.NewFlagSet("test", flag.ContinueOnError)
+	cr.RegisterFlags(fs, "run", cfg)
+	if err := cr.CheckFlags(fs, cfg); err != nil {
+		t.Fatal(err)
+	}
+
+	got := FilterChanges(repo, cfg, []vfs.Change{
+		{Path: "ignored/new.go", Kind: vfs.ChangeModify},
+		{Path: "skipped/new.go", Kind: vfs.ChangeModify},
+		{Path: "kept/new.go", Kind: vfs.ChangeModify},
+	})
+	want := []vfs.Change{{Path: "kept/new.go", Kind: vfs.ChangeModify}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("FilterChanges() = %#v, want %#v", got, want)
+	}
+}
+
+func TestPromoteTraversalChangesForBuildExcludeChange(t *testing.T) {
+	root := t.TempDir()
+	writeWalkFile(t, filepath.Join(root, "pkg", "BUILD.bazel"), "# gazelle:exclude old/**\n")
+	writeWalkFile(t, filepath.Join(root, "pkg", "child", "x.go"), "package child\n")
+
+	repo, err := buildFrozenSnapshot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+
+	writeWalkFile(t, filepath.Join(root, "pkg", "BUILD.bazel"), "# gazelle:exclude new/**\n")
+
+	got, fullRebuild, err := PromoteTraversalChanges(repo, cfg, []vfs.Change{
+		{Path: "pkg/BUILD.bazel", Kind: vfs.ChangeModify},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if fullRebuild {
+		t.Fatal("fullRebuild = true, want false")
+	}
+	want := []vfs.Change{{Path: "pkg", Kind: vfs.ChangeModify}}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("PromoteTraversalChanges() = %#v, want %#v", got, want)
+	}
+}
+
+func TestPromoteTraversalChangesForRootIgnoreChangeTriggersFullRebuild(t *testing.T) {
+	root := t.TempDir()
+	writeWalkFile(t, filepath.Join(root, "BUILD.bazel"), "# gazelle:ignore\n")
+
+	repo, err := buildFrozenSnapshot(root)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+
+	writeWalkFile(t, filepath.Join(root, "BUILD.bazel"), "")
+
+	got, fullRebuild, err := PromoteTraversalChanges(repo, cfg, []vfs.Change{
+		{Path: "BUILD.bazel", Kind: vfs.ChangeModify},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !fullRebuild {
+		t.Fatal("fullRebuild = false, want true")
+	}
+	if got != nil {
+		t.Fatalf("PromoteTraversalChanges() changes = %#v, want nil", got)
+	}
+}
+
 func buildFrozenSnapshot(root string) (*vfs.Snapshot, error) {
 	build, err := vfs.Build(root, vfs.BuildOptions{})
 	if err != nil {

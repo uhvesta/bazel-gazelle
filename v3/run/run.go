@@ -118,9 +118,34 @@ func Run(opts Options) (*Result, error) {
 	phaseStart = time.Now()
 	var buildRepo *vfs.BuildSnapshot
 	if opts.Snapshot != nil {
-		buildRepo, err = vfs.Patch(opts.Config.RepoRoot, opts.Snapshot, vfs.BuildOptions{
-			Registry: registry,
-		}, opts.Changes)
+		changes, fullRebuild, err := v3walk.PromoteTraversalChanges(opts.Snapshot, opts.Config, opts.Changes)
+		if err != nil {
+			return nil, err
+		}
+		changes = v3walk.FilterChanges(opts.Snapshot, opts.Config, changes)
+		if len(changes) == 0 {
+			recordPhase("build_vfs", phaseStart)
+			recordPhase("prime_parsers", time.Now())
+			recordPhase("freeze_vfs", time.Now())
+			recordPhase("prepare_run", time.Now())
+			recordPhase("walk_generate", time.Now())
+			recordPhase("resolve", time.Now())
+			recordPhase("emit", time.Now())
+			return &Result{
+				Snapshot: opts.Snapshot,
+				Cache:    opts.Snapshot.Cache(),
+			}, nil
+		}
+		if fullRebuild {
+			buildRepo, err = vfs.Build(opts.Config.RepoRoot, vfs.BuildOptions{
+				Cache:    opts.Snapshot.Cache(),
+				Registry: registry,
+			})
+		} else {
+			buildRepo, err = vfs.Patch(opts.Config.RepoRoot, opts.Snapshot, vfs.BuildOptions{
+				Registry: registry,
+			}, changes)
+		}
 	} else {
 		buildRepo, err = vfs.Build(opts.Config.RepoRoot, vfs.BuildOptions{
 			Cache:    opts.Cache,

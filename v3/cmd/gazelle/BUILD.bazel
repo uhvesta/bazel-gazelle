@@ -1,4 +1,4 @@
-load("@io_bazel_rules_go//go:def.bzl", "go_library")
+load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
 load("//v3:def.bzl", "DEFAULT_LANGUAGES", "gazelle_v3_binary")
 
 gazelle_v3_binary(
@@ -27,6 +27,15 @@ go_library(
     ],
 )
 
+go_test(
+    name = "gazelle_test",
+    srcs = ["main_test.go"],
+    embed = [":gazelle_lib"],
+    deps = [
+        "//v3/internal/vfs",
+    ],
+)
+
 filegroup(
     name = "all_files",
     testonly = True,
@@ -34,6 +43,7 @@ filegroup(
         "BUILD.bazel",
         "langs.go",
         "main.go",
+        "main_test.go",
     ],
     visibility = ["//visibility:public"],
 )

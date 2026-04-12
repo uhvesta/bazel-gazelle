@@ -8,6 +8,7 @@ import (
 	"path"
 	"path/filepath"
 	"regexp"
+	"slices"
 	"sort"
 	"strings"
 
@@ -52,6 +53,37 @@ func FilterChanges(repo *vfs.Snapshot, c *config.Config, changes []vfs.Change) [
 		}
 	}
 	return filtered
+}
+
+// PromoteTraversalChanges rewrites BUILD-file changes that alter exclude/ignore
+// directives into subtree rebuilds rooted at the containing package. If the
+// root package changes these directives, fullRebuild is returned.
+func PromoteTraversalChanges(repo *vfs.Snapshot, c *config.Config, changes []vfs.Change) ([]vfs.Change, bool, error) {
+	if repo == nil || c == nil || len(changes) == 0 {
+		return changes, false, nil
+	}
+	promoted := make([]vfs.Change, 0, len(changes))
+	for _, change := range changes {
+		rel := path.Clean(change.Path)
+		if !isBuildFilePath(c, rel) {
+			promoted = append(promoted, change)
+			continue
+		}
+		changed, err := traversalDirectivesChanged(repo, rel)
+		if err != nil {
+			return nil, false, err
+		}
+		if !changed {
+			promoted = append(promoted, change)
+			continue
+		}
+		dir := path.Dir(rel)
+		if dir == "." || dir == "" {
+			return nil, true, nil
+		}
+		promoted = append(promoted, vfs.Change{Path: dir, Kind: vfs.ChangeModify})
+	}
+	return promoted, false, nil
 }
 
 // Walk traverses the whole repo snapshot in depth-first post-order.
@@ -238,6 +270,58 @@ func shouldTrackPath(repo *vfs.Snapshot, c *config.Config, rel string) (bool, er
 		}
 	}
 	return true, nil
+}
+
+func isBuildFilePath(c *config.Config, rel string) bool {
+	base := path.Base(rel)
+	for _, name := range c.ValidBuildFileNames {
+		if base == name {
+			return true
+		}
+	}
+	return false
+}
+
+func traversalDirectivesChanged(repo *vfs.Snapshot, rel string) (bool, error) {
+	oldData, _ := repo.ReadFile(rel)
+	oldDirectives, err := traversalDirectivesFromData(repo, rel, oldData)
+	if err != nil {
+		return false, err
+	}
+
+	newData, err := os.ReadFile(filepath.Join(repo.Root, filepath.FromSlash(rel)))
+	if err != nil {
+		if os.IsNotExist(err) {
+			return len(oldDirectives) > 0, nil
+		}
+		return false, err
+	}
+	newDirectives, err := traversalDirectivesFromData(repo, rel, newData)
+	if err != nil {
+		return false, err
+	}
+	return !slices.Equal(oldDirectives, newDirectives), nil
+}
+
+func traversalDirectivesFromData(repo *vfs.Snapshot, rel string, data []byte) ([]string, error) {
+	if len(data) == 0 {
+		return nil, nil
+	}
+	pkg := path.Dir(rel)
+	if pkg == "." {
+		pkg = ""
+	}
+	f, err := rule.LoadData(filepath.Join(repo.Root, filepath.FromSlash(rel)), pkg, data)
+	if err != nil {
+		return nil, err
+	}
+	directives := make([]string, 0, len(f.Directives))
+	for _, d := range f.Directives {
+		if d.Key == "exclude" || d.Key == "ignore" {
+			directives = append(directives, d.Key+"="+d.Value)
+		}
+	}
+	return directives, nil
 }
 
 func mustDir(repo *vfs.Snapshot, rel string, subdirs []string, regularFiles []string) *vfs.Dir {
