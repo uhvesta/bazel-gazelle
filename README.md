@@ -16,6 +16,7 @@ The older, general project README was moved to [docs/README.md](docs/README.md).
 
 - [How Gazelle Works](#how-gazelle-works)
 - [How V3 Works](#how-v3-works)
+- [Plugin Porting](#plugin-porting)
 - [Incremental Reruns](#incremental-reruns)
 - [Watchman Setup](#watchman-setup)
 - [Why V3 Exists](#why-v3-exists)
@@ -249,6 +250,277 @@ For example, if a language has a metadata file, a plugin can:
    - lockfile-derived external index second
 
 That lets `v3` support external resolution as a local semantic data problem instead of a remote lookup problem.
+
+## Plugin Porting
+
+At a high level, a normal Gazelle plugin and a `v3` plugin are trying to do the same job:
+
+- interpret directives and config
+- inspect package-local files
+- generate rules
+- describe imports for indexing
+- resolve dependencies against the repo-wide index
+
+The main difference is where filesystem state comes from.
+
+### Classic Gazelle Plugin Shape
+
+Classic Gazelle plugins usually work with:
+
+- `Configure(c, rel, f)`
+- `GenerateRules(args)`
+- `Imports(args)`
+- `Resolve(args)`
+
+and `GenerateRules` receives package-local slices like:
+
+- `Subdirs []string`
+- `RegularFiles []string`
+- `GenFiles []string`
+
+Classic plugins often do extra IO with direct filesystem calls like:
+
+- `os.ReadFile`
+- `os.Stat`
+- `os.ReadDir`
+
+or helper APIs layered on top of the real filesystem.
+
+### V3 Plugin Shape
+
+`v3` keeps the same broad lifecycle, but the interfaces are VFS-aware.
+
+Important differences:
+
+- `GenerateRules` receives:
+  - `Repo *vfs.Snapshot`
+  - `PackageDir *vfs.Dir`
+  - `GenFiles []string`
+- configurers can implement:
+  - `ConfigureRepo(c, repo, rel, f)`
+  instead of only `Configure(c, rel, f)`
+- plugins can register parsers up front and consume cached models through:
+  - `Repo.GetModel(path, parserKey)`
+
+So instead of relying on direct OS IO, a `v3` plugin is expected to use:
+
+- `Repo.ReadFile(...)`
+- `Repo.ListDir(...)`
+- `Repo.File(...)`
+- `Repo.GetModel(...)`
+- `PackageDir.RegularFiles()`
+- `PackageDir.Subdirs()`
+
+### Practical Porting Strategy
+
+The easiest way to port an existing plugin is usually:
+
+1. copy the existing plugin into a `v3` package
+2. keep the high-level generation and resolve logic intact
+3. replace direct file IO with VFS calls
+4. add parser registration for expensive or repeated parsing work
+5. use `ConfigureRepo` where config-time repo inspection is needed
+
+In practice, the most common code changes are:
+
+- replace raw package file lists with `PackageDir.RegularFiles()`
+- replace path concatenation plus `os.ReadFile` with `Repo.ReadFile`
+- replace repeated parsing helpers with `Repo.GetModel`
+- replace config-time repo probing with snapshot queries in `ConfigureRepo`
+
+### Function Signature Differences
+
+In classic Gazelle, `GenerateRules` typically receives flat package slices and works against the live filesystem.
+
+In `v3`, `GenerateRules` receives a package view plus the frozen snapshot:
+
+- classic:
+  - package-local names and paths
+  - direct filesystem access is common
+- `v3`:
+  - `Repo`
+  - `PackageDir`
+  - the package BUILD file
+  - generated-file names from the BUILD file
+
+That means a ported plugin usually stops thinking in terms of "read this from disk right now" and starts thinking in terms of "read this from the frozen repo snapshot" or "load this cached parsed model".
+
+### Concrete Example
+
+Here is a simplified example of a classic Gazelle plugin that reads `.foo`
+files directly from disk and generates one rule per file.
+
+Classic shape:
+
+```go
+type fooLang struct{}
+
+func (*fooLang) Name() string { return "foo" }
+
+func (*fooLang) KnownDirectives() []string { return []string{"foo_mode"} }
+
+func (*fooLang) Configure(c *config.Config, rel string, f *rule.File) {
+    // Read directives from f and update c.Exts as needed.
+}
+
+func (*fooLang) GenerateRules(args language.GenerateArgs) language.GenerateResult {
+    var gen []*rule.Rule
+    var imports []interface{}
+
+    for _, name := range args.RegularFiles {
+        if !strings.HasSuffix(name, ".foo") {
+            continue
+        }
+        path := filepath.Join(args.Dir, name)
+        data, err := os.ReadFile(path)
+        if err != nil {
+            continue
+        }
+
+        model := parseFoo(data)
+        r := rule.NewRule("foo_library", strings.TrimSuffix(name, ".foo"))
+        r.SetAttr("srcs", []string{name})
+        r.SetAttr("deps", model.Deps)
+
+        gen = append(gen, r)
+        imports = append(imports, model.Imports)
+    }
+
+    return language.GenerateResult{
+        Gen:     gen,
+        Imports: imports,
+    }
+}
+
+func (*fooLang) Imports(args language.ImportsArgs) []resolve.ImportSpec {
+    return nil
+}
+
+func (*fooLang) Resolve(args language.ResolveArgs) {}
+```
+
+The equivalent `v3` plugin keeps the same broad logic, but file access moves
+through the snapshot and the parser can be registered once up front.
+
+`v3` shape:
+
+```go
+type fooLang struct{}
+
+func (*fooLang) Name() string { return "foo" }
+
+func (*fooLang) KnownDirectives() []string { return []string{"foo_mode"} }
+
+func (*fooLang) RegisterParsers(reg *vfs.Registry) error {
+    return reg.Register(fooParser{}, vfs.MatchExtension(".foo"))
+}
+
+func (*fooLang) ConfigureRepo(c *config.Config, repo *vfs.Snapshot, rel string, f *rule.File) {
+    // Read directives from f and update c.Exts as needed.
+    // Use repo.ReadFile / repo.ListDir / repo.GetModel here if config-time
+    // repo inspection is needed.
+}
+
+func (*fooLang) GenerateRules(args v3language.GenerateArgs) v3language.GenerateResult {
+    var gen []*rule.Rule
+    var imports []interface{}
+
+    for _, file := range args.PackageDir.RegularFiles() {
+        if !strings.HasSuffix(file.Name(), ".foo") {
+            continue
+        }
+
+        result, err := file.GetModel("foo/file")
+        if err != nil {
+            continue
+        }
+        model := result.Model.(fooModel)
+
+        r := rule.NewRule("foo_library", strings.TrimSuffix(file.Name(), ".foo"))
+        r.SetAttr("srcs", []string{file.Name()})
+        r.SetAttr("deps", model.Deps)
+
+        gen = append(gen, r)
+        imports = append(imports, model.Imports)
+    }
+
+    return v3language.GenerateResult{
+        Gen:     gen,
+        Imports: imports,
+    }
+}
+
+func (*fooLang) Imports(args v3language.ImportsArgs) []resolve.ImportSpec {
+    return nil
+}
+
+func (*fooLang) Resolve(args v3language.ResolveArgs) {}
+```
+
+The semantic change is small:
+
+- classic plugin:
+  - loops over `RegularFiles []string`
+  - reads file bytes directly with `os.ReadFile`
+- `v3` plugin:
+  - loops over `PackageDir.RegularFiles()`
+  - reads parsed state through `GetModel(...)`
+
+That is the most common migration pattern: keep the rule logic, replace the
+filesystem plumbing.
+
+### File IO Differences
+
+Classic plugins often mix semantic logic with filesystem calls.
+
+`v3` tries to separate those concerns:
+
+- the VFS build phase does repo IO up front
+- parser registration turns expensive parsing into cached semantic models
+- the run phase reads from the frozen snapshot
+
+That means a good `v3` plugin usually:
+
+- reads repo-local files through the VFS
+- parses structured files through registered parsers
+- avoids direct `os.*` access for repo-local data
+
+Direct OS access in a `v3` plugin should generally only remain for things that are not workspace snapshot data, such as:
+
+- environment-dependent behavior
+- user cache dir selection
+- external tools or subprocesses
+- other data outside the repo snapshot
+
+### Resolve Differences
+
+The resolve model is intentionally close to classic Gazelle.
+
+In both systems:
+
+- generated rules contribute imports to the index
+- existing rules can still be indexed if their resolver returns imports
+- dependency resolution happens after the full index exists
+
+The practical `v3` difference is that plugins are expected to resolve from:
+
+- the frozen `RuleIndex`
+- the frozen VFS
+- language-specific cached metadata
+
+instead of falling back to ad hoc filesystem or remote discovery during resolve.
+
+### Good First Port
+
+A good first `v3` port usually looks like this:
+
+1. preserve the old rule-generation logic
+2. move file reads behind `Repo`
+3. register one parser for the plugin's main source file type
+4. consume that parsed model in `GenerateRules`
+5. keep `Resolve` behavior as close to the old plugin as possible
+
+That gets most of the `v3` benefits quickly without rewriting the plugin from scratch.
 
 ## Incremental Reruns
 
