@@ -2,6 +2,7 @@ package vfs
 
 import (
 	"bytes"
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"reflect"
@@ -260,12 +261,22 @@ func TestSnapshotRoundTripPersistence(t *testing.T) {
 	if file.Content != nil {
 		t.Fatal("expected parser-backed file content to be omitted from persisted snapshot")
 	}
+	if file.Hash != "" {
+		t.Fatal("expected parser-backed file hash to be omitted from persisted snapshot")
+	}
 	directive, ok := loaded.File("pkg/directive.cfg")
 	if !ok {
 		t.Fatal("expected directive.cfg in loaded snapshot")
 	}
-	if string(directive.Content) != "# gazelle:exclude skipped\n" {
-		t.Fatalf("directive file content = %q, want preserved content", directive.Content)
+	if directive.Content != nil {
+		t.Fatal("expected non-control file content to be omitted from persisted snapshot")
+	}
+	directiveContent, err := loaded.ReadFile("pkg/directive.cfg")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(directiveContent) != "# gazelle:exclude skipped\n" {
+		t.Fatalf("ReadFile(directive.cfg) = %q, want preserved on-disk content", directiveContent)
 	}
 }
 
@@ -309,8 +320,8 @@ func TestPatchUpdatesOnlyChangedPaths(t *testing.T) {
 	if parser.parses != 3 {
 		t.Fatalf("parser called %d times, want 3", parser.parses)
 	}
-	if foo.CacheHit {
-		t.Fatal("changed file should not hit parsed-model cache")
+	if !foo.CacheHit {
+		t.Fatal("patched file should reuse the refreshed parsed-model cache")
 	}
 	if !bar.CacheHit {
 		t.Fatal("unchanged file should reuse parsed-model cache")
@@ -355,6 +366,54 @@ func TestPatchSkipsUnchangedFileContent(t *testing.T) {
 	}
 	if patched.Changed() {
 		t.Fatal("expected unchanged file patch to be skipped")
+	}
+}
+
+func TestPatchSkipsParserBackedSemanticNoop(t *testing.T) {
+	root := t.TempDir()
+	writeTestFile(t, filepath.Join(root, "pkg", "foo.txt"), "keep\n# comment one\n")
+
+	registry := NewRegistry()
+	parser := &commentInsensitiveParser{key: "test/commentless", version: "v1"}
+	if err := registry.Register(parser, MatchExtension(".txt")); err != nil {
+		t.Fatal(err)
+	}
+
+	buildSnapshot, err := Build(root, BuildOptions{Registry: registry})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := buildSnapshot.GetModel("pkg/foo.txt", parser.Key()); err != nil {
+		t.Fatal(err)
+	}
+	frozen := buildSnapshot.Freeze()
+
+	writeTestFile(t, filepath.Join(root, "pkg", "foo.txt"), "keep\n# comment two\n")
+
+	patched, err := Patch(root, frozen, BuildOptions{Registry: registry}, []Change{{Path: "pkg/foo.txt", Kind: ChangeModify}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if patched.Changed() {
+		t.Fatal("expected parser-backed semantic no-op patch to be skipped")
+	}
+
+	got, err := patched.GetModel("pkg/foo.txt", parser.Key())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.CacheHit {
+		t.Fatal("patched parser-backed file should reuse the refreshed cached model entry")
+	}
+	file, ok := patched.File("pkg/foo.txt")
+	if !ok {
+		t.Fatal("expected foo.txt in patched snapshot")
+	}
+	if file.Content != nil {
+		t.Fatal("expected parser-backed patched file to avoid storing raw content")
+	}
+	if file.Hash != "" {
+		t.Fatal("expected parser-backed patched file to avoid storing byte hash")
 	}
 }
 
@@ -457,4 +516,45 @@ func writeTestFile(t *testing.T, path, content string) {
 	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
 		t.Fatal(err)
 	}
+}
+
+type commentInsensitiveParser struct {
+	key     string
+	version string
+	parses  int
+}
+
+func (p *commentInsensitiveParser) Key() string          { return p.key }
+func (p *commentInsensitiveParser) CacheVersion() string { return p.version }
+
+func (p *commentInsensitiveParser) Parse(path string, data []byte) (any, error) {
+	p.parses++
+	lines := splitLines(data)
+	filtered := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if len(line) > 0 && line[0] == '#' {
+			continue
+		}
+		filtered = append(filtered, line)
+	}
+	return struct {
+		Path  string   `json:"path"`
+		Lines []string `json:"lines"`
+	}{
+		Path:  path,
+		Lines: filtered,
+	}, nil
+}
+
+func (p *commentInsensitiveParser) Encode(model any) ([]byte, error) {
+	return json.Marshal(model)
+}
+
+func (p *commentInsensitiveParser) Decode(data []byte) (any, error) {
+	var model struct {
+		Path  string   `json:"path"`
+		Lines []string `json:"lines"`
+	}
+	err := json.Unmarshal(data, &model)
+	return model, err
 }

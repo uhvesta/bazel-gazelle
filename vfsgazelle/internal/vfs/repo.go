@@ -797,10 +797,18 @@ func (s *BuildSnapshot) GetModel(path, parserKey string) (LookupResult, error) {
 		return LookupResult{}, fmt.Errorf("parser not registered: %s", parserKey)
 	}
 	if file.Content == nil {
-		if result, hit, err := s.builder.CheckHash(file.Path, file.Hash, parser); err != nil {
-			return LookupResult{}, err
-		} else if hit {
-			return result, nil
+		if file.Hash != "" {
+			if result, hit, err := s.builder.CheckHash(file.Path, file.Hash, parser); err != nil {
+				return LookupResult{}, err
+			} else if hit {
+				return result, nil
+			}
+		} else {
+			if result, hit, err := s.builder.CheckPath(file.Path, parser); err != nil {
+				return LookupResult{}, err
+			} else if hit {
+				return result, nil
+			}
 		}
 		content, err := os.ReadFile(filepath.Join(s.Root, filepath.FromSlash(file.Path)))
 		if err != nil {
@@ -924,7 +932,11 @@ func (s *Snapshot) GetModel(path, parserKey string) (LookupResult, error) {
 		err    error
 	)
 	if file.Content == nil {
-		result, hit, err = s.cache.GetHash(file.Path, file.Hash, parser)
+		if file.Hash != "" {
+			result, hit, err = s.cache.GetHash(file.Path, file.Hash, parser)
+		} else {
+			result, hit, err = s.cache.GetPath(file.Path, parser)
+		}
 	} else {
 		result, hit, err = s.cache.Get(file.Path, file.Content, parser)
 	}

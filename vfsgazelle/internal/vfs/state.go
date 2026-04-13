@@ -65,6 +65,7 @@ var alwaysPersistContent = map[string]bool{
 	".bazelignore":    true,
 	"BUILD":           true,
 	"BUILD.bazel":     true,
+	"MODULE.bazel":    true,
 	"REPO.bazel":      true,
 	"WORKSPACE":       true,
 	"WORKSPACE.bazel": true,
@@ -103,7 +104,7 @@ func (s *Snapshot) Save(w io.Writer, format StateFormat) error {
 }
 
 // SaveMetadata writes only the snapshot metadata needed to reconstruct the
-// tree, file hashes, and direct-read file contents.
+// tree and control-file contents.
 func (s *Snapshot) SaveMetadata(w io.Writer, format StateFormat) error {
 	metadata, err := s.persistedMetadata()
 	if err != nil {
@@ -178,13 +179,12 @@ func (s *Snapshot) persistedMetadata() (persistedMetadata, error) {
 		if !ok {
 			continue
 		}
-		content := file.Content
 		if !s.shouldPersistContent(file.Path) {
-			content = nil
+			continue
 		}
 		files = append(files, File{
 			Path:    file.Path,
-			Content: append([]byte(nil), content...),
+			Content: append([]byte(nil), file.Content...),
 			Hash:    file.Hash,
 		})
 	}
@@ -227,17 +227,22 @@ func (s *Snapshot) ParserVersions() map[string]string {
 	return s.copyParserVersions()
 }
 
+func shouldPersistContent(registry *Registry, rel string) bool {
+	return alwaysPersistContent[path.Base(rel)]
+}
+
 func (s *Snapshot) shouldPersistContent(rel string) bool {
 	if s == nil {
 		return false
 	}
-	if alwaysPersistContent[path.Base(rel)] {
-		return true
+	return shouldPersistContent(s.registry, rel)
+}
+
+func (s *BuildSnapshot) shouldPersistContent(rel string) bool {
+	if s == nil {
+		return false
 	}
-	if s.registry == nil {
-		return true
-	}
-	return len(s.registry.Match(rel)) == 0
+	return shouldPersistContent(s.registry, rel)
 }
 
 // LoadSnapshot decodes a persisted snapshot and parsed-model cache.
@@ -439,8 +444,9 @@ func hasStateMagic(r *bufio.Reader, magic string) bool {
 func snapshotFromMetadata(metadata persistedMetadata, registry *Registry, cache *Cache) *Snapshot {
 	files := make(map[string]File, len(metadata.Files))
 	for _, file := range metadata.Files {
-		files[file.Path] = File{
-			Path:    file.Path,
+		rel := cleanRepoPath(file.Path)
+		files[rel] = File{
+			Path:    rel,
 			Content: append([]byte(nil), file.Content...),
 			Hash:    file.Hash,
 		}
@@ -451,6 +457,18 @@ func snapshotFromMetadata(metadata persistedMetadata, registry *Registry, cache 
 	}
 	if cache == nil {
 		cache = &Cache{entries: make(map[cacheKey]Entry)}
+	}
+	for dir, entries := range dirs {
+		for _, name := range entries {
+			rel := cleanRepoPath(path.Join(dir, name))
+			if _, ok := dirs[rel]; ok {
+				continue
+			}
+			if _, ok := files[rel]; ok {
+				continue
+			}
+			files[rel] = File{Path: rel}
+		}
 	}
 	validBuildFileNames := append([]string(nil), metadata.ValidBuildFileNames...)
 	if len(validBuildFileNames) == 0 {
@@ -599,6 +617,9 @@ func upsertFileFromDisk(s *BuildSnapshot, absPath, rel string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
+	if len(s.registry.Match(rel)) > 0 && !s.shouldPersistContent(rel) {
+		return upsertParserBackedFile(s, rel, content)
+	}
 	hash := digest(content)
 	if existing, ok := s.lookupFile(rel); ok && existing.Hash == hash {
 		return false, nil
@@ -618,6 +639,38 @@ func upsertFileFromDisk(s *BuildSnapshot, absPath, rel string) (bool, error) {
 	}
 	addDirEntry(s, parent, path.Base(rel))
 	return true, nil
+}
+
+func upsertParserBackedFile(s *BuildSnapshot, rel string, content []byte) (bool, error) {
+	parsers := s.registry.Match(rel)
+	if len(parsers) == 0 {
+		return false, fmt.Errorf("no parser registered for parser-backed file %s", rel)
+	}
+	semanticallyChanged := false
+	for _, parser := range parsers {
+		oldResult, oldHit, err := s.builder.CheckPath(rel, parser)
+		if err != nil {
+			return false, err
+		}
+		newResult, err := s.builder.Parse(rel, content, parser)
+		if err != nil {
+			return false, err
+		}
+		if !oldHit || oldResult.ModelHash != newResult.ModelHash {
+			semanticallyChanged = true
+		}
+	}
+	if err := ensureDirPath(s, path.Dir(rel)); err != nil {
+		return false, err
+	}
+	s.files[rel] = File{Path: rel}
+	delete(s.deletedFiles, rel)
+	parent := path.Dir(rel)
+	if parent == "." {
+		parent = ""
+	}
+	addDirEntry(s, parent, path.Base(rel))
+	return semanticallyChanged, nil
 }
 
 func ensureDirPath(s *BuildSnapshot, rel string) error {

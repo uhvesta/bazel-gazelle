@@ -220,6 +220,39 @@ func (b *CacheBuilder) CheckHash(path, contentHash string, parser Parser) (Looku
 	}, true, nil
 }
 
+// CheckPath reports whether an entry can be reused for path without validating
+// a content hash. This is only sound when the caller already knows the file has
+// not changed semantically and wants to avoid re-reading parser-backed files.
+func (b *CacheBuilder) CheckPath(path string, parser Parser) (LookupResult, bool, error) {
+	if parser == nil {
+		return LookupResult{}, false, fmt.Errorf("nil parser")
+	}
+	if parser.Key() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser key must not be empty")
+	}
+	if parser.CacheVersion() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser cache version must not be empty")
+	}
+	key := cacheKey{Path: path, ParserKey: parser.Key()}
+	entry, ok, err := b.lookupEntry(key)
+	if err != nil {
+		return LookupResult{}, false, err
+	}
+	if !ok || entry.ParserVersion != parser.CacheVersion() {
+		return LookupResult{}, false, nil
+	}
+	model, err := parser.Decode(entry.EncodedModel)
+	if err != nil {
+		return LookupResult{}, false, fmt.Errorf("decode cached model for %s with parser %s: %w", path, parser.Key(), err)
+	}
+	return LookupResult{
+		Model:       model,
+		ContentHash: entry.ContentHash,
+		ModelHash:   entry.ModelHash,
+		CacheHit:    true,
+	}, true, nil
+}
+
 // StoreEntry records a parsed entry in the builder. This is intended for the
 // single coordinator goroutine after worker parsing completes.
 func (b *CacheBuilder) StoreEntry(entry Entry) {
@@ -329,6 +362,39 @@ func (c *Cache) GetHash(path, contentHash string, parser Parser) (LookupResult, 
 		return LookupResult{}, false, err
 	}
 	if !ok || entry.ParserVersion != parser.CacheVersion() || entry.ContentHash != contentHash {
+		return LookupResult{}, false, nil
+	}
+	model, err := parser.Decode(entry.EncodedModel)
+	if err != nil {
+		return LookupResult{}, false, fmt.Errorf("decode cached model for %s with parser %s: %w", path, parser.Key(), err)
+	}
+	return LookupResult{
+		Model:       model,
+		ContentHash: entry.ContentHash,
+		ModelHash:   entry.ModelHash,
+		CacheHit:    true,
+	}, true, nil
+}
+
+// GetPath looks up a frozen cache entry for path without validating a content
+// hash. This is intended for persisted parser-backed files whose changed-path
+// accounting is handled outside the cache.
+func (c *Cache) GetPath(path string, parser Parser) (LookupResult, bool, error) {
+	if parser == nil {
+		return LookupResult{}, false, fmt.Errorf("nil parser")
+	}
+	if parser.Key() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser key must not be empty")
+	}
+	if parser.CacheVersion() == "" {
+		return LookupResult{}, false, fmt.Errorf("parser cache version must not be empty")
+	}
+	key := cacheKey{Path: path, ParserKey: parser.Key()}
+	entry, ok, err := c.lookupEntry(key)
+	if err != nil {
+		return LookupResult{}, false, err
+	}
+	if !ok || entry.ParserVersion != parser.CacheVersion() {
 		return LookupResult{}, false, nil
 	}
 	model, err := parser.Decode(entry.EncodedModel)
