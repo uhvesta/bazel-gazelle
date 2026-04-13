@@ -16,6 +16,7 @@ The older, general project README was moved to [docs/README.md](docs/README.md).
 
 - [How Gazelle Works](#how-gazelle-works)
 - [How vfsgazelle Works](#how-vfsgazelle-works)
+- [Why Plugins Should Usually Stay Single-Threaded](#why-plugins-should-usually-stay-single-threaded)
 - [Plugin Porting](#plugin-porting)
 - [Incremental Reruns](#incremental-reruns)
 - [Watchman Setup](#watchman-setup)
@@ -118,9 +119,11 @@ That lets languages use:
 
 instead of direct `os.ReadFile` style access.
 
-### Concurrency Model
+### Why Plugins Should Usually Stay Single-Threaded
 
-`vfsgazelle` already uses concurrency in the framework itself.
+TL;DR: `vfsgazelle` already applies concurrency where it materially improves wall-clock time: VFS file IO, parser priming, background parser-cache loading, and rerun short-circuiting. Plugins are meant to be small deterministic interjection points inside that pipeline, not their own schedulers. In practice, plugin-managed goroutines usually duplicate framework work, add contention, and make runs slower or harder to reason about.
+
+`vfsgazelle` already applies most of the useful concurrency and IO optimization in the framework itself, before plugin logic becomes the bottleneck.
 
 There is one important framework-owned concurrency layer today:
 
@@ -128,19 +131,47 @@ There is one important framework-owned concurrency layer today:
    - worker goroutines read files and parse models
    - one coordinator owns snapshot membership and cache mutation
 
-So the concurrency contract is intentionally asymmetric:
+There are also a couple of important IO and caching optimizations around that:
+
+- parser-backed files are turned into cached semantic models up front through `Repo.GetModel(...)`
+- frozen snapshots are reused across `rerun`
+- persisted snapshot metadata stores only the directory tree plus the small set of control files whose bytes must survive reload
+- snapshot metadata loads synchronously at startup, while parser cache loads are started immediately in the background per parser key
+- `Repo.GetModel(path, parserKey)` does not block on unrelated parser caches; it only waits if that specific parser cache is needed and has not finished loading yet
+- parser-backed file changes are reparsed and a rerun is avoided in incremental/rerun mode if the model is semantically unchanged.
+- control-file changes are ignored if their content hash is unchanged (i.e. if a BUILD.bazel is unchanged content wise then rerun is essentially no-op)
+- if all incoming rerun changes are semantic no-ops, `vfsgazelle` skips the full walk / generate / resolve pipeline entirely
+- emitted `BUILD` files are only rewritten if the formatted bytes actually changed
+
+So the execution contract is intentionally asymmetric:
 
 - parent-before-child configuration remains deterministic
 - package-local generation currently stays single-threaded in the framework
 - global indexing and resolution stay framework-owned
 
-For plugin authors, this means:
+For plugin authors, the practical implication is that extra goroutines are usually the wrong optimization:
+
+- they compete with framework-owned file IO and parser work instead of replacing it
+- they add scheduling and synchronization overhead in code that is often already memory-resident by the time plugins run
+- they encourage shared mutable state on language objects, which is harder to reason about and easier to get wrong
+- they often duplicate work that should instead be moved into parser registration and `Repo.GetModel(...)`
+- they can make profiling noisier, which makes it harder to tell whether time is really going to parsing, generation, resolution, or emit
+
+In most plugins, the better optimization path is:
+
+- move repeated parsing into a registered parser
+- read from `Repo.GetModel(...)` instead of reparsing bytes in plugin code
+- use `PackageDir.RegularFiles()` / `Subdirs()` instead of rescanning the filesystem
+- keep `Fix`, `GenerateRules`, and `Resolve` mostly stateless
+- let snapshot reuse, parser-cache reuse, and rerun no-op filtering eliminate unnecessary work
+
+So plugin authors should usually assume this:
 
 - do not assume `Fix`, `GenerateRules`, or `Resolve` are framework-parallelized today
 - avoid mutable shared state on the language object unless you synchronize it yourself
 - strongly prefer stateless logic plus VFS/parser-cache APIs over plugin-managed worker pools
 
-In particular, plugin authors should generally not start their own goroutines for routine file or parser work. `vfsgazelle` already parallelizes the expensive parts of VFS file IO and parser priming, and extra goroutines inside plugins usually add contention, duplicate scheduling overhead, and make performance worse rather than better.
+In particular, plugin authors should generally not start their own goroutines for routine file or parser work. `vfsgazelle` already parallelizes the expensive parts of VFS file IO and parser priming, then uses cached semantic models and no-op rerun detection to avoid repeating work on later runs. For most plugins, a simple single-threaded implementation that leans on those APIs will be both faster and easier to maintain than a plugin-managed concurrent design.
 
 ### What The VFS Stores
 
@@ -173,8 +204,8 @@ That split is why `vfsgazelle` can stay deterministic without putting mutexes al
 Metadata and parser caches are also loaded differently on `rerun`:
 
 - snapshot metadata blocks startup
-- parser caches are started in the background, one future per parser key
-- `Repo.GetModel(path, parserKey)` blocks only on the parser cache for that parser
+- parser cache loads are started immediately in the background, one future per parser key
+- `Repo.GetModel(path, parserKey)` only waits if that specific parser cache is still loading
 
 That behavior is intentionally transparent to plugins. A plugin still just calls normal synchronous VFS methods.
 
@@ -192,12 +223,11 @@ That behavior is intentionally transparent to plugins. A plugin still just calls
 `rerun` starts from the previously saved frozen snapshot:
 
 1. load the saved snapshot metadata
-2. normalize the changed path list
-3. filter out changed paths that should not affect the walk
+2. start parser-cache loads in the background
+3. normalize and filter the changed path list
 4. patch only the changed/new/deleted files or directories
-5. start parser-cache loads in the background and reuse cached parsed models for unchanged files
-6. freeze the updated snapshot
-7. rerun the whole Gazelle algorithm
+5. if patching is a semantic no-op, return the previous frozen snapshot
+6. otherwise prime parsers for changed work, freeze the updated snapshot, and rerun the whole Gazelle algorithm
 
 So `rerun` is still a whole-repo Gazelle run, but it is not a whole-repo filesystem rebuild.
 
@@ -429,7 +459,7 @@ Important differences:
   - `GenFiles []string`
 - configurers can implement:
   - `ConfigureRepo(c, repo, rel, f)`
-  instead of only `Configure(c, rel, f)`
+    instead of only `Configure(c, rel, f)`
 - plugins can register parsers up front and consume cached models through:
   - `Repo.GetModel(path, parserKey)`
 
@@ -649,11 +679,11 @@ Useful flags:
 `rerun` does this:
 
 1. load the saved frozen snapshot metadata
-2. patch only the changed/new/deleted paths
-3. start per-parser cache loads in the background
-4. reuse cached parsed models for unchanged files
-5. rerun the whole Gazelle algorithm against the patched snapshot
-6. save the updated snapshot back to disk
+2. start per-parser cache loads in the background
+3. patch only the changed/new/deleted paths
+4. if the patch is a semantic no-op, reuse the previous frozen snapshot
+5. otherwise rerun the whole Gazelle algorithm against the patched snapshot
+6. save the resulting snapshot back to disk
 
 This means `rerun` is already useful even without a built-in watcher.
 
@@ -662,6 +692,7 @@ This means `rerun` is already useful even without a built-in watcher.
 Two safeguards are important for stable incremental use:
 
 1. unchanged patched files are ignored
+
    - if a changed path is passed to `rerun` but it is semantically unchanged for the relevant snapshot input, the patch is a no-op
    - if all incoming changes are no-ops, `vfsgazelle` skips the full walk/generate/resolve algorithm entirely
 
@@ -688,8 +719,8 @@ A practical shape is:
 bazel run //vfsgazelle/cmd/gazelle -- run
 ```
 
-2. configure Watchman to invoke a small wrapper script
-3. the wrapper script passes the changed file list to:
+1. configure Watchman to invoke a small wrapper script
+2. the wrapper script passes the changed file list to:
 
 ```sh
 bazel run //vfsgazelle/cmd/gazelle -- rerun path/to/file1.go path/to/file2.proto
@@ -726,7 +757,7 @@ bazel run //vfsgazelle/cmd/gazelle -- rerun <paths...>
 
 These examples may not work as-is in every environment. Check Watchman syntax and trigger behavior here:
 
-- https://facebook.github.io/watchman/
+- <https://facebook.github.io/watchman/>
 
 Or build your own file system service that collects changed repo-relative paths and invokes:
 
