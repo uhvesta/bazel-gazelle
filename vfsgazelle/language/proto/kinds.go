@@ -35,9 +35,13 @@ var protoKinds = map[string]rule.KindInfo{
 func (*protoLang) Kinds() map[string]rule.KindInfo { return protoKinds }
 
 func (pl *protoLang) Loads() []rule.LoadInfo {
+	return pl.ApparentLoads(func(string) string { return "" })
+}
+
+func (*protoLang) ApparentLoads(moduleToApparentName func(string) string) []rule.LoadInfo {
 	return []rule.LoadInfo{
 		{
-			Name: symbolToFileLabel(func(s string) string { return "" }, "proto_library").String(),
+			Name: symbolToFileLabel(moduleToApparentName, "proto_library").String(),
 			Symbols: []string{
 				"proto_library",
 			},

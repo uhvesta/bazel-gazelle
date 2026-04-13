@@ -15,7 +15,11 @@ limitations under the License.
 
 package golang
 
-import "github.com/uhvesta/bazel-gazelle/rule"
+import (
+	"fmt"
+
+	"github.com/uhvesta/bazel-gazelle/rule"
+)
 
 var goKinds = map[string]rule.KindInfo{
 	"alias": {
@@ -165,9 +169,26 @@ var goKinds = map[string]rule.KindInfo{
 func (*goLang) Kinds() map[string]rule.KindInfo { return goKinds }
 
 func (*goLang) Loads() []rule.LoadInfo {
+	return apparentLoads(func(string) string { return "" })
+}
+
+func (*goLang) ApparentLoads(moduleToApparentName func(string) string) []rule.LoadInfo {
+	return apparentLoads(moduleToApparentName)
+}
+
+func apparentLoads(moduleToApparentName func(string) string) []rule.LoadInfo {
+	rulesGo := moduleToApparentName("rules_go")
+	if rulesGo == "" {
+		rulesGo = "io_bazel_rules_go"
+	}
+	gazelle := moduleToApparentName("gazelle")
+	if gazelle == "" {
+		gazelle = "bazel_gazelle"
+	}
+
 	return []rule.LoadInfo{
 		{
-			Name: "@io_bazel_rules_go//go:def.bzl",
+			Name: fmt.Sprintf("@%s//go:def.bzl", rulesGo),
 			Symbols: []string{
 				"cgo_library",
 				"go_binary",
@@ -178,13 +199,13 @@ func (*goLang) Loads() []rule.LoadInfo {
 				"go_tool_library",
 			},
 		}, {
-			Name: "@io_bazel_rules_go//proto:def.bzl",
+			Name: fmt.Sprintf("@%s//proto:def.bzl", rulesGo),
 			Symbols: []string{
 				"go_grpc_library",
 				"go_proto_library",
 			},
 		}, {
-			Name: "@bazel_gazelle//:deps.bzl",
+			Name: fmt.Sprintf("@%s//:deps.bzl", gazelle),
 			Symbols: []string{
 				"go_repository",
 			},

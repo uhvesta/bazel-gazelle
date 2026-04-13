@@ -33,6 +33,18 @@ type Language interface {
 	Resolve(args ResolveArgs)
 }
 
+// FinishableLanguage allows a vfsgazelle language to be notified after all
+// GenerateRules calls are complete and before resolution begins.
+type FinishableLanguage interface {
+	DoneGeneratingRules()
+}
+
+// ModuleAwareLanguage allows a vfsgazelle language to emit Bzlmod-aware load
+// labels using the configured module-to-apparent-name mapping.
+type ModuleAwareLanguage interface {
+	ApparentLoads(moduleToApparentName func(string) string) []rule.LoadInfo
+}
+
 // CrossResolver is an optional extension point for languages that need to
 // influence dependency resolution for other languages.
 type CrossResolver interface {

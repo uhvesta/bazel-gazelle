@@ -213,7 +213,11 @@ func Run(opts Options) (*Result, error) {
 			kinds[kind] = info
 			mrslv.Add(kind, adapter)
 		}
-		loads = append(loads, lang.Loads()...)
+		if moduleAwareLang, ok := lang.(vfsgazellelanguage.ModuleAwareLanguage); ok {
+			loads = append(loads, moduleAwareLang.ApparentLoads(opts.Config.ModuleToApparentName)...)
+		} else {
+			loads = append(loads, lang.Loads()...)
+		}
 		exts = append(exts, adapter)
 	}
 	ruleIndex := resolve.NewRuleIndex(mrslv.Resolver, exts...)
@@ -333,6 +337,12 @@ func Run(opts Options) (*Result, error) {
 		return nil, err
 	}
 	recordPhase("walk_generate", phaseStart)
+
+	for _, lang := range opts.Languages {
+		if finishable, ok := lang.(vfsgazellelanguage.FinishableLanguage); ok {
+			finishable.DoneGeneratingRules()
+		}
+	}
 
 	if opts.Config.IndexLibraries {
 		phaseStart = time.Now()

@@ -125,6 +125,59 @@ func (*fakeLang) Resolve(args v3language.ResolveArgs) {
 	}
 }
 
+type lifecycleLang struct {
+	v3language.BaseLang
+	doneCalled    bool
+	resolveSawDone bool
+}
+
+func (*lifecycleLang) Name() string { return "lifecycle" }
+
+func (*lifecycleLang) Kinds() map[string]rule.KindInfo {
+	return map[string]rule.KindInfo{
+		"lifecycle_rule": {
+			MatchAny: true,
+			NonEmptyAttrs: map[string]bool{
+				"srcs": true,
+			},
+			MergeableAttrs: map[string]bool{
+				"srcs": true,
+			},
+		},
+	}
+}
+
+func (*lifecycleLang) ApparentLoads(moduleToApparentName func(string) string) []rule.LoadInfo {
+	repo := moduleToApparentName("gazelle")
+	if repo == "" {
+		repo = "bazel_gazelle"
+	}
+	return []rule.LoadInfo{{
+		Name: "@" + repo + "//:defs.bzl",
+		Symbols: []string{"lifecycle_rule"},
+	}}
+}
+
+func (l *lifecycleLang) GenerateRules(args v3language.GenerateArgs) v3language.GenerateResult {
+	if args.Rel != "" {
+		return v3language.GenerateResult{}
+	}
+	r := rule.NewRule("lifecycle_rule", "root")
+	r.SetAttr("srcs", []string{"BUILD.bazel"})
+	return v3language.GenerateResult{
+		Gen:     []*rule.Rule{r},
+		Imports: []interface{}{nil},
+	}
+}
+
+func (l *lifecycleLang) DoneGeneratingRules() {
+	l.doneCalled = true
+}
+
+func (l *lifecycleLang) Resolve(args v3language.ResolveArgs) {
+	l.resolveSawDone = l.doneCalled
+}
+
 func TestRunGeneratesIndexesAndResolvesWholeRepo(t *testing.T) {
 	root := t.TempDir()
 	writeRunFile(t, filepath.Join(root, "a", "a.foo"), "export a\n")
@@ -205,6 +258,48 @@ func TestRunWithGoLanguageGeneratesAndResolves(t *testing.T) {
 	}
 	if !strings.Contains(gotB, "\"//a") && !strings.Contains(gotB, "\"../a") {
 		t.Fatalf("package b output missing dep on a:\n%s", gotB)
+	}
+}
+
+func TestRunCallsDoneGeneratingRulesBeforeResolveAndUsesApparentLoads(t *testing.T) {
+	root := t.TempDir()
+	writeRunFile(t, filepath.Join(root, "MODULE.bazel"), "module(name = \"repo\")\n")
+	writeRunFile(t, filepath.Join(root, "BUILD.bazel"), "")
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.RepoName = "repo"
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+	cfg.IndexLibraries = true
+	cfg.ModuleToApparentName = func(module string) string {
+		if module == "gazelle" {
+			return "custom_gazelle"
+		}
+		return ""
+	}
+
+	lang := &lifecycleLang{}
+	emitted := make(map[string]string)
+	_, err := Run(Options{
+		Config:    cfg,
+		Languages: []v3language.Language{lang},
+		Emit: func(c *config.Config, f *rule.File) error {
+			f.Sync()
+			emitted[f.Pkg] = string(f.Format())
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !lang.doneCalled {
+		t.Fatal("expected DoneGeneratingRules to be called")
+	}
+	if !lang.resolveSawDone {
+		t.Fatal("expected Resolve to run after DoneGeneratingRules")
+	}
+	if got := emitted[""]; !strings.Contains(got, "@custom_gazelle//:defs.bzl") {
+		t.Fatalf("expected apparent load label in output, got:\n%s", got)
 	}
 }
 

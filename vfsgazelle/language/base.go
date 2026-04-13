@@ -52,6 +52,10 @@ func (b *BaseLang) Loads() []rule.LoadInfo {
 	return nil
 }
 
+func (b *BaseLang) ApparentLoads(moduleToApparentName func(string) string) []rule.LoadInfo {
+	return b.Loads()
+}
+
 func (b *BaseLang) Fix(c *config.Config, f *rule.File) {}
 
 func (b *BaseLang) Imports(args ImportsArgs) []resolve.ImportSpec {
@@ -67,5 +71,7 @@ func (b *BaseLang) Resolve(args ResolveArgs) {}
 func (b *BaseLang) CrossResolve(args CrossResolveArgs) []resolve.FindResult {
 	return nil
 }
+
+func (b *BaseLang) DoneGeneratingRules() {}
 
 var _ Language = (*BaseLang)(nil)
