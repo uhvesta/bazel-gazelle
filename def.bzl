@@ -51,7 +51,10 @@ load(
 )
 load(
     "//vfsgazelle:def.bzl",
+    _vfsgazelle_binary = "vfsgazelle_binary",
+    _vfsgazelle_generation_test = "vfsgazelle_generation_test",
     _gazelle_vfsgazelle_binary = "gazelle_vfsgazelle_binary",
+    _gazelle_vfsgazelle_generation_test = "gazelle_vfsgazelle_generation_test",
     _DEFAULT_VFSGAZELLE_LANGUAGES = "DEFAULT_LANGUAGES",
 )
 
@@ -59,7 +62,10 @@ go_repository = _go_repository
 git_repository = _git_repository
 http_archive = _http_archive
 gazelle_binary = _gazelle_binary
+vfsgazelle_binary = _vfsgazelle_binary
+vfsgazelle_generation_test = _vfsgazelle_generation_test
 gazelle_vfsgazelle_binary = _gazelle_vfsgazelle_binary
+gazelle_vfsgazelle_generation_test = _gazelle_vfsgazelle_generation_test
 gazelle_generation_test = _gazelle_generation_test
 
 DEFAULT_LANGUAGES = [

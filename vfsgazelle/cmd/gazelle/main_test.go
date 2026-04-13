@@ -116,6 +116,24 @@ func TestLoadSnapshotSkipsStaleParserCacheFile(t *testing.T) {
 	}
 }
 
+func TestStateBasePathUsesExplicitStateDir(t *testing.T) {
+	t.Parallel()
+
+	repoRoot := filepath.Join(string(os.PathSeparator), "repo")
+
+	got := stateBasePath(repoRoot, "test-cache")
+	want := filepath.Join(repoRoot, "test-cache", "vfsgazelle-state")
+	if got != want {
+		t.Fatalf("stateBasePath(relative) = %q, want %q", got, want)
+	}
+
+	got = stateBasePath(repoRoot, filepath.Join(string(os.PathSeparator), "tmp", "cache"))
+	want = filepath.Join(string(os.PathSeparator), "tmp", "cache", "vfsgazelle-state")
+	if got != want {
+		t.Fatalf("stateBasePath(abs) = %q, want %q", got, want)
+	}
+}
+
 type testParser struct {
 	key     string
 	version string

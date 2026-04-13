@@ -1,6 +1,6 @@
 load("@bazel_skylib//:bzl_library.bzl", "bzl_library")
 load("@io_bazel_rules_go//go:def.bzl", "nogo")
-load("//:def.bzl", "gazelle", "gazelle_binary", "gazelle_vfsgazelle_binary")
+load("//:def.bzl", "gazelle", "gazelle_binary", "vfsgazelle_binary")
 
 # gazelle:prefix github.com/uhvesta/bazel-gazelle
 # gazelle:exclude vendor
@@ -37,7 +37,7 @@ gazelle_binary(
     ],
 )
 
-gazelle_vfsgazelle_binary(
+vfsgazelle_binary(
     name = "gazelle_vfsgazelle_local",
     languages = [
         "//vfsgazelle/language/proto",

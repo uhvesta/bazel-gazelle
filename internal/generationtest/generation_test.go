@@ -33,6 +33,7 @@ var (
 		" By default, will use files named BUILD.in as the BUILD files before running gazelle.")
 	buildOutSuffix = flag.String("build_out_suffix", ".out", "The suffix on the expected BUILD.bazel files after running gazelle. Defaults to .out. "+
 		" By default, will use files named BUILD.out as the expected results of the gazelle run.")
+	command = flag.String("command", "", "Optional command to prepend before arguments.txt.")
 	timeout = flag.Duration("timeout", 2*time.Second, "Time to allow the gazelle process to run before killing.")
 )
 
@@ -88,6 +89,7 @@ func TestFullGeneration(t *testing.T) {
 					GazelleBinaryPath:    absoluteGazelleBinary,
 					BuildInSuffix:        *buildInSuffix,
 					BuildOutSuffix:       *buildOutSuffix,
+					Command:              *command,
 					Timeout:              *timeout,
 				})
 			}

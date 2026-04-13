@@ -1,7 +1,7 @@
 load("@io_bazel_rules_go//go:def.bzl", "go_library", "go_test")
-load("//vfsgazelle:def.bzl", "DEFAULT_LANGUAGES", "gazelle_vfsgazelle_binary")
+load("//vfsgazelle:def.bzl", "DEFAULT_LANGUAGES", "vfsgazelle_binary")
 
-gazelle_vfsgazelle_binary(
+vfsgazelle_binary(
     name = "gazelle",
     languages = DEFAULT_LANGUAGES,
     visibility = ["//visibility:public"],

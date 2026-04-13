@@ -26,6 +26,12 @@ Tests
 To write tests for your gazelle extension, you can use [gazelle_generation_test](reference.md#gazelle_generation_test),
 which will run a gazelle binary of your choosing on a set of test workspaces.
 
+For `vfsgazelle` extensions, use [vfsgazelle_binary](reference.md#vfsgazelle_binary) to compose a custom
+snapshot-backed binary and [vfsgazelle_generation_test](reference.md#vfsgazelle_generation_test) to run
+snapshot-style golden tests against that binary. The longer legacy aliases
+`gazelle_vfsgazelle_binary` and `gazelle_vfsgazelle_generation_test` still work,
+but the shorter `vfsgazelle_*` names are preferred.
+
 
 Supported languages
 -------------------

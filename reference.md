@@ -94,6 +94,66 @@ To update the expected files, run `UPDATE_SNAPSHOTS=true bazel run //path/to:the
 
 <a id="gazelle_test"></a>
 
+<a id="vfsgazelle_binary"></a>
+
+## vfsgazelle_binary
+
+<pre>
+load("@gazelle//:def.bzl", "vfsgazelle_binary")
+
+vfsgazelle_binary(<a href="#vfsgazelle_binary-kwargs">**kwargs</a>)
+</pre>
+
+Builds a snapshot-backed `vfsgazelle` binary from an ordered list of vfsgazelle language libraries.
+
+The preferred public name is `vfsgazelle_binary`. The compatibility alias
+`gazelle_vfsgazelle_binary` is still exported.
+
+**PARAMETERS**
+
+
+| Name  | Description | Default Value |
+| :------------- | :------------- | :------------- |
+| <a id="vfsgazelle_binary-kwargs"></a>kwargs |  Passed through to the underlying rule. Most importantly, set `languages` to a non-empty ordered list of vfsgazelle language libraries exporting `NewLanguage()`.   |  none |
+
+
+<a id="vfsgazelle_generation_test"></a>
+
+## vfsgazelle_generation_test
+
+<pre>
+load("@gazelle//:def.bzl", "vfsgazelle_generation_test")
+
+vfsgazelle_generation_test(<a href="#vfsgazelle_generation_test-name">name</a>, <a href="#vfsgazelle_generation_test-gazelle_binary">gazelle_binary</a>, <a href="#vfsgazelle_generation_test-test_data">test_data</a>, <a href="#vfsgazelle_generation_test-build_in_suffix">build_in_suffix</a>, <a href="#vfsgazelle_generation_test-build_out_suffix">build_out_suffix</a>,
+                           <a href="#vfsgazelle_generation_test-gazelle_timeout_seconds">gazelle_timeout_seconds</a>, <a href="#vfsgazelle_generation_test-size">size</a>, <a href="#vfsgazelle_generation_test-kwargs">**kwargs</a>)
+</pre>
+
+Runs snapshot-style generation tests against a `vfsgazelle` binary.
+
+This macro reuses the same golden test layout as `gazelle_generation_test`, but
+it prepends the `run` command automatically, so `arguments.txt` should contain
+only flags and positional arguments for `vfsgazelle run`. This includes
+`-state_dir` when tests need to control where the persisted VFS cache is stored.
+
+The preferred public name is `vfsgazelle_generation_test`. The compatibility alias
+`gazelle_vfsgazelle_generation_test` is still exported.
+
+**PARAMETERS**
+
+
+| Name  | Description | Default Value |
+| :------------- | :------------- | :------------- |
+| <a id="vfsgazelle_generation_test-name"></a>name |  The name of the test.   |  none |
+| <a id="vfsgazelle_generation_test-gazelle_binary"></a>gazelle_binary |  The `vfsgazelle` binary target to execute.   |  none |
+| <a id="vfsgazelle_generation_test-test_data"></a>test_data |  A list of test data targets, usually a `glob` or `filegroup` covering the fixture directory.   |  none |
+| <a id="vfsgazelle_generation_test-build_in_suffix"></a>build_in_suffix |  The suffix for input BUILD files before the run.   |  `".in"` |
+| <a id="vfsgazelle_generation_test-build_out_suffix"></a>build_out_suffix |  The suffix for expected BUILD files after the run.   |  `".out"` |
+| <a id="vfsgazelle_generation_test-gazelle_timeout_seconds"></a>gazelle_timeout_seconds |  Number of seconds to allow the `vfsgazelle` process to run before killing.   |  `2` |
+| <a id="vfsgazelle_generation_test-size"></a>size |  Specifies a test target's "heaviness": how much time/resources it needs to run.   |  `None` |
+| <a id="vfsgazelle_generation_test-kwargs"></a>kwargs |  Attributes that are passed directly to the test declaration.   |  none |
+
+<a id="gazelle_test"></a>
+
 ## gazelle_test
 
 <pre>
@@ -321,5 +381,3 @@ http_archive(
 | <a id="http_archive-strip_prefix"></a>strip_prefix |  A directory prefix to strip. See [http_archive.strip_prefix].   | String | optional |  `""`  |
 | <a id="http_archive-type"></a>type |  One of `"zip"`, `"tar.gz"`, `"tgz"`, `"tar.bz2"`, `"tar.xz"`.<br><br>The file format of the repository archive. This is normally inferred from the downloaded file name.   | String | optional |  `""`  |
 | <a id="http_archive-urls"></a>urls |  A list of HTTP(S) URLs where the project can be downloaded. Bazel will attempt to download the first URL; the others are mirrors.   | List of strings | optional |  `[]`  |
-
-

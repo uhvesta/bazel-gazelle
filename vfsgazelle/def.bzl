@@ -1,4 +1,8 @@
 load("@io_bazel_rules_go//go:def.bzl", "GoArchive", "go_context", "new_go_info")
+load(
+    "//internal/generationtest:generationtest.bzl",
+    _gazelle_generation_test = "gazelle_generation_test",
+)
 
 DEFAULT_LANGUAGES = [
     Label("//vfsgazelle/language/proto"),
@@ -14,7 +18,7 @@ def _format_import(importpath):
 def _format_call(importpath):
     return _import_alias(importpath) + ".NewLanguage()"
 
-def _gazelle_vfsgazelle_binary_impl(ctx):
+def _vfsgazelle_binary_impl(ctx):
     go = go_context(ctx)
 
     langs_file = go.declare_file(go, "langs.go")
@@ -27,12 +31,14 @@ import (
 \t{lang_imports}
 )
 
-var languages = []vfsgazellelanguage.Language{{
-\t{lang_calls},
+func init() {{
+\tlanguages = []vfsgazellelanguage.Language{{
+\t\t{lang_calls},
+\t}}
 }}
 """.format(
         lang_imports = "\n\t".join([_format_import(d[GoArchive].data.importpath) for d in ctx.attr.languages]),
-        lang_calls = ",\n\t".join([_format_call(d[GoArchive].data.importpath) for d in ctx.attr.languages]),
+        lang_calls = ",\n\t\t".join([_format_call(d[GoArchive].data.importpath) for d in ctx.attr.languages]),
     )
     go.actions.write(langs_file, langs_content)
 
@@ -62,8 +68,8 @@ var languages = []vfsgazellelanguage.Language{{
         ),
     ]
 
-gazelle_vfsgazelle_binary = rule(
-    implementation = _gazelle_vfsgazelle_binary_impl,
+vfsgazelle_binary = rule(
+    implementation = _vfsgazelle_binary_impl,
     attrs = {
         "languages": attr.label_list(
             providers = [GoArchive],
@@ -78,3 +84,20 @@ gazelle_vfsgazelle_binary = rule(
     executable = True,
     toolchains = ["@io_bazel_rules_go//go:toolchain"],
 )
+
+def vfsgazelle_generation_test(name, gazelle_binary, test_data, build_in_suffix = ".in", build_out_suffix = ".out", gazelle_timeout_seconds = 2, size = None, **kwargs):
+    """Runs snapshot-style generation tests against a vfsgazelle binary."""
+    _gazelle_generation_test(
+        name = name,
+        gazelle_binary = gazelle_binary,
+        test_data = test_data,
+        build_in_suffix = build_in_suffix,
+        build_out_suffix = build_out_suffix,
+        gazelle_timeout_seconds = gazelle_timeout_seconds,
+        command = "run",
+        size = size,
+        **kwargs
+    )
+
+gazelle_vfsgazelle_binary = vfsgazelle_binary
+gazelle_vfsgazelle_generation_test = vfsgazelle_generation_test

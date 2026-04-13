@@ -4,6 +4,8 @@ load(
     "//:def.bzl",
     "gazelle_binary",
     "gazelle_generation_test",
+    "vfsgazelle_binary",
+    "vfsgazelle_generation_test",
 )
 load("//tests:tools.bzl", "get_binary")
 
@@ -38,6 +40,16 @@ _GAZELLE_BINARY_CONFIGS = [
     ],
 ]
 
+_VFSGAZELLE_BINARY_CONFIGS = [
+    [
+        "vfsgazelle_with_proto_and_go_languages",
+        [
+            "//vfsgazelle/language/proto",
+            "//vfsgazelle/language/go",
+        ],
+    ],
+]
+
 [gazelle_binary(
     name = name if version == 1 else name + "_v2",
     languages = languages,
@@ -47,6 +59,12 @@ _GAZELLE_BINARY_CONFIGS = [
     1,
     2,
 ]]
+
+[vfsgazelle_binary(
+    name = name,
+    languages = languages,
+    visibility = ["//visibility:private"],
+) for (name, languages) in _VFSGAZELLE_BINARY_CONFIGS]
 
 [gazelle_generation_test(
     # Name the test the path to the directory containing the WORKSPACE file.
@@ -71,6 +89,14 @@ _GAZELLE_BINARY_CONFIGS = [
     1,
     2,
 ]]
+
+vfsgazelle_generation_test(
+    name = "vfsgazelle_basic_snapshot_test",
+    gazelle_binary = ":vfsgazelle_with_proto_and_go_languages",
+    test_data = glob([
+        "vfsgazelle_basic_snapshot/**",
+    ]),
+)
 
 filegroup(
     name = "all_files",

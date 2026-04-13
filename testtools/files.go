@@ -162,6 +162,9 @@ type TestGazelleGenerationArgs struct {
 	// Default: ".out", so out BUILD files should be named BUILD.out.
 	BuildOutSuffix string
 
+	// Command is an optional command to prepend before the arguments from arguments.txt.
+	Command string
+
 	// Timeout is the duration after which the generation process will be killed.
 	Timeout time.Duration
 }
@@ -329,7 +332,11 @@ Run %s to update BUILD.out and expected{Stdout,Stderr,ExitCode}.txt files.
 
 		ctx, cancel := context.WithTimeout(context.Background(), args.Timeout)
 		defer cancel()
-		cmd := exec.CommandContext(ctx, args.GazelleBinaryPath, config.Args...)
+		cmdArgs := append([]string{}, config.Args...)
+		if args.Command != "" {
+			cmdArgs = append([]string{args.Command}, cmdArgs...)
+		}
+		cmd := exec.CommandContext(ctx, args.GazelleBinaryPath, cmdArgs...)
 		cmd.Stdout = &stdout
 		cmd.Stderr = &stderr
 		cmd.Dir = workspaceRoot

@@ -32,6 +32,8 @@ const (
 	helpCmd
 )
 
+var languages []vfsgazellelanguage.Language
+
 func main() {
 	log.SetPrefix("gazelle-vfsgazelle: ")
 	log.SetFlags(0)
@@ -66,13 +68,16 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 	fs := flag.NewFlagSet("gazelle-vfsgazelle", flag.ContinueOnError)
 	var timings bool
 	var stateFormat string
+	var stateDir string
 	fs.BoolVar(&timings, "timings", false, "print per-phase vfsgazelle run timings to stderr")
 	fs.StringVar(&stateFormat, "state_format", string(vfs.StateFormatGob), "persisted vfsgazelle state format: gob or json")
+	fs.StringVar(&stateDir, "state_dir", "", "directory where persisted vfsgazelle state files should be read and written")
 	fs.Usage = func() {
 		_ = help()
 	}
+	flagMode := cmd.generationFlagMode()
 	for _, cext := range configurers {
-		cext.RegisterFlags(fs, cmd.String(), cfg)
+		cext.RegisterFlags(fs, flagMode, cfg)
 	}
 	if err := fs.Parse(cmdArgs); err != nil {
 		return err
@@ -92,6 +97,7 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 	var snapshot *vfs.Snapshot
 	var timingOffset time.Duration
 	emitted := make(map[string][]byte)
+	stateBase := stateBasePath(cfg.RepoRoot, stateDir)
 	if cmd == rerunCmd {
 		registry, err := run.Registry(langs)
 		if err != nil {
@@ -99,7 +105,7 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 		}
 		loadStart := time.Now()
 		var metadataLoad, cacheLoad time.Duration
-		snapshot, metadataLoad, cacheLoad, err = loadSnapshot(stateBasePath(cfg.RepoRoot, vfs.StateFormat(stateFormat)), registry)
+		snapshot, metadataLoad, cacheLoad, err = loadSnapshot(stateBase, registry)
 		timingOffset = time.Since(loadStart)
 		if timings {
 			if metadataLoad > 0 {
@@ -149,7 +155,7 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 	if len(emitted) > 0 {
 		result.Snapshot = result.Snapshot.WithFileContents(emitted)
 	}
-	return saveSnapshot(stateBasePath(cfg.RepoRoot, vfs.StateFormat(stateFormat)), result.Snapshot, vfs.StateFormat(stateFormat))
+	return saveSnapshot(stateBase, result.Snapshot, vfs.StateFormat(stateFormat))
 }
 
 func makeConfigurers(langs []vfsgazellelanguage.Language) []config.Configurer {
@@ -174,14 +180,15 @@ Commands:
   rerun   load saved vfsgazelle state, patch changed paths, then run the whole-repo vfsgazelle pipeline
   help    show this message
 
-Notes:
-  vfsgazelle currently runs on the whole repository.
-  Bare invocation is the same as 'run'.
-  Use -timings to print per-phase timing information.
-  Use -state_format to choose gob or json for the saved vfsgazelle state file.
-  run saves VFS state in the OS cache dir for later rerun commands.
-  rerun expects changed/new/deleted repo-relative paths.
-  Watch mode is not wired into this CLI yet.
+	Notes:
+	  vfsgazelle currently runs on the whole repository.
+	  Bare invocation is the same as 'run'.
+	  Use -timings to print per-phase timing information.
+	  Use -state_format to choose gob or json for the saved vfsgazelle state file.
+	  Use -state_dir to override the directory where vfsgazelle state is stored.
+	  run saves VFS state in the OS cache dir for later rerun commands.
+	  rerun expects changed/new/deleted repo-relative paths.
+	  Watch mode is not wired into this CLI yet.
 `)
 	return flag.ErrHelp
 }
@@ -215,7 +222,22 @@ func (cmd command) String() string {
 	}
 }
 
-func stateBasePath(repoRoot string, format vfs.StateFormat) string {
+func (cmd command) generationFlagMode() string {
+	switch cmd {
+	case runCmd, rerunCmd:
+		return "update"
+	default:
+		return cmd.String()
+	}
+}
+
+func stateBasePath(repoRoot, stateDir string) string {
+	if stateDir != "" {
+		if !filepath.IsAbs(stateDir) {
+			stateDir = filepath.Join(repoRoot, stateDir)
+		}
+		return filepath.Join(stateDir, "vfsgazelle-state")
+	}
 	cacheDir, err := os.UserCacheDir()
 	if err != nil {
 		return filepath.Join(repoRoot, ".gazelle-vfsgazelle-state")
