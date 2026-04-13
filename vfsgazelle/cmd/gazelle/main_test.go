@@ -42,16 +42,21 @@ func TestSaveLoadSnapshot(t *testing.T) {
 	snapshot := bs.Freeze()
 
 	for _, tc := range []struct {
-		name   string
-		format vfs.StateFormat
+		name        string
+		format      vfs.StateFormat
+		compression string
 	}{
-		{name: "gob", format: vfs.StateFormatGob},
-		{name: "json", format: vfs.StateFormatJSON},
+		{name: "gob", format: vfs.StateFormatGob, compression: "none"},
+		{name: "gob_gzip", format: vfs.StateFormatGob, compression: "gzip"},
+		{name: "gob_zstd", format: vfs.StateFormatGob, compression: "zstd"},
+		{name: "json", format: vfs.StateFormatJSON, compression: "none"},
+		{name: "json_gzip", format: vfs.StateFormatJSON, compression: "gzip"},
+		{name: "json_zstd", format: vfs.StateFormatJSON, compression: "zstd"},
 	} {
 		tc := tc
 		t.Run(tc.name, func(t *testing.T) {
 			base := filepath.Join(t.TempDir(), "state")
-			if err := saveSnapshot(base, snapshot, tc.format); err != nil {
+			if err := saveSnapshot(base, snapshot, tc.format, tc.compression); err != nil {
 				t.Fatal(err)
 			}
 			metaPath, _, _ := statePaths(base, tc.format)
@@ -102,7 +107,7 @@ func TestLoadSnapshotSkipsStaleParserCacheFile(t *testing.T) {
 		t.Fatal(err)
 	}
 	base := filepath.Join(t.TempDir(), "state")
-	if err := saveSnapshot(base, bs.Freeze(), vfs.StateFormatGob); err != nil {
+	if err := saveSnapshot(base, bs.Freeze(), vfs.StateFormatGob, "none"); err != nil {
 		t.Fatal(err)
 	}
 
@@ -154,7 +159,8 @@ func TestHelpForCommandIncludesRegisteredFlags(t *testing.T) {
 	var timings bool
 	var stateFormat string
 	var stateDir string
-	fs := newFlagSet(cfg, makeConfigurers(langs), runCmd, &timings, &stateFormat, &stateDir)
+	var stateCompression string
+	fs := newFlagSet(cfg, makeConfigurers(langs), runCmd, &timings, &stateFormat, &stateDir, &stateCompression)
 	err := helpForCommand(&buf, runCmd, fs)
 	if err != flag.ErrHelp {
 		t.Fatalf("helpForCommand() err = %v, want %v", err, flag.ErrHelp)
@@ -164,6 +170,7 @@ func TestHelpForCommandIncludesRegisteredFlags(t *testing.T) {
 	for _, want := range []string{
 		"usage: gazelle-vfsgazelle run [flags]",
 		"-state_dir",
+		"-state_compression",
 		"-state_format",
 		"-timings",
 		"-go_prefix",
@@ -187,8 +194,9 @@ func TestNewFlagSetBindsParsedValues(t *testing.T) {
 	var timings bool
 	var stateFormat string
 	var stateDir string
-	fs := newFlagSet(cfg, makeConfigurers(nil), runCmd, &timings, &stateFormat, &stateDir)
-	if err := fs.Parse([]string{"-timings", "-state_format", "json", "-state_dir", "cache"}); err != nil {
+	var stateCompression string
+	fs := newFlagSet(cfg, makeConfigurers(nil), runCmd, &timings, &stateFormat, &stateDir, &stateCompression)
+	if err := fs.Parse([]string{"-timings", "-state_format", "json", "-state_dir", "cache", "-state_compression", "zstd"}); err != nil {
 		t.Fatal(err)
 	}
 
@@ -200,6 +208,9 @@ func TestNewFlagSetBindsParsedValues(t *testing.T) {
 	}
 	if stateDir != "cache" {
 		t.Fatalf("stateDir = %q, want cache", stateDir)
+	}
+	if stateCompression != "zstd" {
+		t.Fatalf("stateCompression = %q, want zstd", stateCompression)
 	}
 }
 

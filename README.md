@@ -673,6 +673,9 @@ Useful flags:
 - `-state_format`
   - choose `gob` or `json` for the persisted `vfsgazelle` snapshot state
   - `gob` is the default
+- `-state_compression`
+  - choose `none`, `gzip`, or `zstd` for persisted `vfsgazelle` state files
+  - `none` is the default
 
 `run` does a full snapshot build and saves state in the OS cache directory.
 

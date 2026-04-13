@@ -24,6 +24,7 @@ go_library(
         "//vfsgazelle/language/proto",
         "//vfsgazelle/run",
         "//vfsgazelle/walk",
+        "@com_github_klauspost_compress//zstd",
     ],
 )
 

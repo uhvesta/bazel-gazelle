@@ -15,6 +15,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/klauspost/compress/zstd"
 	"github.com/uhvesta/bazel-gazelle/config"
 	"github.com/uhvesta/bazel-gazelle/resolve"
 	"github.com/uhvesta/bazel-gazelle/rule"
@@ -68,7 +69,8 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 	var timings bool
 	var stateFormat string
 	var stateDir string
-	fs := newFlagSet(cfg, configurers, cmd, &timings, &stateFormat, &stateDir)
+	var stateCompression string
+	fs := newFlagSet(cfg, configurers, cmd, &timings, &stateFormat, &stateDir, &stateCompression)
 	fs.Usage = func() {
 		_ = helpForCommand(os.Stderr, cmd, fs)
 	}
@@ -85,6 +87,9 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 		if err := cext.CheckFlags(fs, cfg); err != nil {
 			return err
 		}
+	}
+	if stateCompression != "" && stateCompression != "none" && stateCompression != "gzip" && stateCompression != "zstd" {
+		return fmt.Errorf("unknown state compression %q", stateCompression)
 	}
 
 	var snapshot *vfs.Snapshot
@@ -148,14 +153,15 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 	if len(emitted) > 0 {
 		result.Snapshot = result.Snapshot.WithFileContents(emitted)
 	}
-	return saveSnapshot(stateBase, result.Snapshot, vfs.StateFormat(stateFormat))
+	return saveSnapshot(stateBase, result.Snapshot, vfs.StateFormat(stateFormat), stateCompression)
 }
 
-func newFlagSet(cfg *config.Config, configurers []config.Configurer, cmd command, timings *bool, stateFormat *string, stateDir *string) *flag.FlagSet {
+func newFlagSet(cfg *config.Config, configurers []config.Configurer, cmd command, timings *bool, stateFormat *string, stateDir *string, stateCompression *string) *flag.FlagSet {
 	fs := flag.NewFlagSet("gazelle-vfsgazelle", flag.ContinueOnError)
 	fs.BoolVar(timings, "timings", false, "print per-phase vfsgazelle run timings to stderr")
 	fs.StringVar(stateFormat, "state_format", string(vfs.StateFormatGob), "persisted vfsgazelle state format: gob or json")
 	fs.StringVar(stateDir, "state_dir", "", "directory where persisted vfsgazelle state files should be read and written")
+	fs.StringVar(stateCompression, "state_compression", "none", "persisted vfsgazelle state compression: none, gzip, or zstd")
 	flagMode := cmd.generationFlagMode()
 	for _, cext := range configurers {
 		cext.RegisterFlags(fs, flagMode, cfg)
@@ -185,12 +191,13 @@ func helpForArgs(w io.Writer, wd string, args []string, langs []vfsgazellelangua
 	var timings bool
 	var stateFormat string
 	var stateDir string
+	var stateCompression string
 	switch args[0] {
 	case "run":
-		fs := newFlagSet(cfg, configurers, runCmd, &timings, &stateFormat, &stateDir)
+		fs := newFlagSet(cfg, configurers, runCmd, &timings, &stateFormat, &stateDir, &stateCompression)
 		return helpForCommand(w, runCmd, fs)
 	case "rerun":
-		fs := newFlagSet(cfg, configurers, rerunCmd, &timings, &stateFormat, &stateDir)
+		fs := newFlagSet(cfg, configurers, rerunCmd, &timings, &stateFormat, &stateDir, &stateCompression)
 		return helpForCommand(w, rerunCmd, fs)
 	default:
 		return help(w)
@@ -232,6 +239,7 @@ Commands:
 	  Bare invocation is the same as 'run'.
 	  Use -timings to print per-phase timing information.
 	  Use -state_format to choose gob or json for the saved vfsgazelle state file.
+	  Use -state_compression to choose none, gzip, or zstd for persisted vfsgazelle state files.
 	  Use -state_dir to override the directory where vfsgazelle state is stored.
 	  run saves VFS state in the OS cache dir for later rerun commands.
 	  rerun expects changed/new/deleted repo-relative paths.
@@ -317,7 +325,7 @@ func sanitizeParserKey(key string) string {
 	return replaced
 }
 
-func saveSnapshot(base string, snapshot *vfs.Snapshot, format vfs.StateFormat) error {
+func saveSnapshot(base string, snapshot *vfs.Snapshot, format vfs.StateFormat, compression string) error {
 	if snapshot == nil {
 		return nil
 	}
@@ -329,8 +337,15 @@ func saveSnapshot(base string, snapshot *vfs.Snapshot, format vfs.StateFormat) e
 	if err != nil {
 		return err
 	}
-	defer metaFile.Close()
-	if err := snapshot.SaveMetadata(metaFile, format); err != nil {
+	metaWriter, metaClose, err := openStateWriter(metaFile, compression)
+	if err != nil {
+		_ = metaFile.Close()
+		return err
+	}
+	defer func() {
+		_ = metaClose()
+	}()
+	if err := snapshot.SaveMetadata(metaWriter, format); err != nil {
 		return err
 	}
 	groupedCaches, err := snapshot.Cache().SnapshotByParser()
@@ -342,17 +357,52 @@ func saveSnapshot(base string, snapshot *vfs.Snapshot, format vfs.StateFormat) e
 		if err != nil {
 			return err
 		}
-		if err := vfs.SaveCachePersisted(cacheFile, format, persisted); err != nil {
+		cacheWriter, cacheClose, err := openStateWriter(cacheFile, compression)
+		if err != nil {
 			_ = cacheFile.Close()
 			return err
 		}
-		if err := cacheFile.Close(); err != nil {
+		if err := vfs.SaveCachePersisted(cacheWriter, format, persisted); err != nil {
+			_ = cacheClose()
+			return err
+		}
+		if err := cacheClose(); err != nil {
 			return err
 		}
 	}
 	_ = os.Remove(cachePath)
 	_ = os.Remove(legacyPath)
 	return nil
+}
+
+func openStateWriter(f *os.File, compression string) (io.Writer, func() error, error) {
+	switch compression {
+	case "", "none":
+		return f, f.Close, nil
+	case "gzip":
+		zw := gzip.NewWriter(f)
+		return zw, func() error {
+			if err := zw.Close(); err != nil {
+				_ = f.Close()
+				return err
+			}
+			return f.Close()
+		}, nil
+	case "zstd":
+		zw, err := zstd.NewWriter(f)
+		if err != nil {
+			return nil, nil, err
+		}
+		return zw, func() error {
+			if err := zw.Close(); err != nil {
+				_ = f.Close()
+				return err
+			}
+			return f.Close()
+		}, nil
+	default:
+		return nil, nil, fmt.Errorf("unknown state compression %q", compression)
+	}
 }
 
 func loadSnapshot(base string, registry *vfs.Registry) (*vfs.Snapshot, time.Duration, time.Duration, error) {
@@ -462,14 +512,14 @@ func openStateReader(path string) (io.Reader, func() error, error) {
 		return nil, nil, err
 	}
 	r := bufio.NewReader(f)
-	magic, err := r.Peek(2)
+	magic, err := r.Peek(4)
 	if err != nil && !errors.Is(err, io.EOF) {
 		_ = f.Close()
 		return nil, nil, err
 	}
 	var reader io.Reader = r
 	closeFn := f.Close
-	if len(magic) == 2 && magic[0] == 0x1f && magic[1] == 0x8b {
+	if len(magic) >= 2 && magic[0] == 0x1f && magic[1] == 0x8b {
 		zr, err := gzip.NewReader(r)
 		if err != nil {
 			_ = f.Close()
@@ -481,6 +531,17 @@ func openStateReader(path string) (io.Reader, func() error, error) {
 				_ = f.Close()
 				return err
 			}
+			return f.Close()
+		}
+	} else if len(magic) >= 4 && magic[0] == 0x28 && magic[1] == 0xb5 && magic[2] == 0x2f && magic[3] == 0xfd {
+		zr, err := zstd.NewReader(r)
+		if err != nil {
+			_ = f.Close()
+			return nil, nil, err
+		}
+		reader = zr
+		closeFn = func() error {
+			zr.Close()
 			return f.Close()
 		}
 	}
