@@ -104,7 +104,7 @@ The current `vfsgazelle` ordering is:
 2. prime parser cache
 3. freeze snapshot
 4. DFS walk with config propagation
-5. generate package results in parallel
+5. generate package results
 6. build rule index
 7. resolve
 8. emit
@@ -122,30 +122,25 @@ instead of direct `os.ReadFile` style access.
 
 `vfsgazelle` already uses concurrency in the framework itself.
 
-There are two important layers:
+There is one important framework-owned concurrency layer today:
 
 1. VFS build concurrency
    - worker goroutines read files and parse models
    - one coordinator owns snapshot membership and cache mutation
-2. run-phase package concurrency
-   - one coordinator goroutine still owns traversal order, config propagation, mapped-kind bookkeeping, and rule-index construction
-   - package-local `Fix` and `GenerateRules` work may run concurrently across different packages
-   - resolve still happens after the full index exists
 
 So the concurrency contract is intentionally asymmetric:
 
 - parent-before-child configuration remains deterministic
-- package-local generation can run in parallel
+- package-local generation currently stays single-threaded in the framework
 - global indexing and resolution stay framework-owned
 
 For plugin authors, this means:
 
-- assume `Fix` and `GenerateRules` may be invoked concurrently for different packages
-- assume `Resolve` may be invoked concurrently for different generated rules
+- do not assume `Fix`, `GenerateRules`, or `Resolve` are framework-parallelized today
 - avoid mutable shared state on the language object unless you synchronize it yourself
 - strongly prefer stateless logic plus VFS/parser-cache APIs over plugin-managed worker pools
 
-In particular, plugin authors should generally not start their own goroutines for routine file or parser work. `vfsgazelle` already parallelizes the expensive parts of file IO and package generation, and extra goroutines inside plugins usually add contention, duplicate scheduling overhead, and make performance worse rather than better.
+In particular, plugin authors should generally not start their own goroutines for routine file or parser work. `vfsgazelle` already parallelizes the expensive parts of VFS file IO and parser priming, and extra goroutines inside plugins usually add contention, duplicate scheduling overhead, and make performance worse rather than better.
 
 ### What The VFS Stores
 
@@ -154,8 +149,8 @@ The `vfsgazelle` VFS is a repo snapshot plus a parsed-model cache.
 At a high level it stores:
 
 - directory membership
-- per-file path and content hash
-- raw file content when the runner still needs direct bytes
+- file presence through the snapshot tree
+- raw file content only for control files that must survive snapshot reload
 - parsed models keyed by `(path, parser key, parser cache version, content hash)`
 - a parser-version manifest used to reject stale persisted parser caches up front
 
@@ -200,7 +195,7 @@ That behavior is intentionally transparent to plugins. A plugin still just calls
 2. normalize the changed path list
 3. filter out changed paths that should not affect the walk
 4. patch only the changed/new/deleted files or directories
-5. start parser-cache loads in the background and reuse cached parsed models for unchanged content
+5. start parser-cache loads in the background and reuse cached parsed models for unchanged files
 6. freeze the updated snapshot
 7. rerun the whole Gazelle algorithm
 
@@ -212,7 +207,8 @@ So `rerun` is still a whole-repo Gazelle run, but it is not a whole-repo filesys
 
 - ordinary file edits
   - patch just those files
-  - if the content hash is unchanged, the patch is ignored
+  - parser-backed files are reparsed and ignored if their semantic model is unchanged
+  - control files are ignored if their content hash is unchanged
 - deleted files
   - remove the file from the snapshot and cache
 - newly created files
@@ -247,15 +243,16 @@ After a successful run, `vfsgazelle` writes snapshot state to the OS cache direc
 That persisted state is intentionally compact:
 
 - it always keeps enough information to reconstruct the directory tree
-- it stores file hashes for change detection
 - it stores parsed models for parser-backed files in per-parser cache files
-- it only keeps raw file content when direct bytes are still needed, especially for Bazel control files like:
+- it only keeps explicit file metadata for control files whose bytes must survive reload, especially:
   - `BUILD`
   - `BUILD.bazel`
+  - `MODULE.bazel`
   - `WORKSPACE`
   - `WORKSPACE.bazel`
   - `REPO.bazel`
   - `.bazelignore`
+- ordinary non-control files and parser-backed files are reconstructed from the saved directory tree instead of per-file metadata rows
 
 The persisted layout is:
 
@@ -665,7 +662,7 @@ This means `rerun` is already useful even without a built-in watcher.
 Two safeguards are important for stable incremental use:
 
 1. unchanged patched files are ignored
-   - if a changed path is passed to `rerun` but the file content hash is unchanged, the patch is a no-op
+   - if a changed path is passed to `rerun` but it is semantically unchanged for the relevant snapshot input, the patch is a no-op
    - if all incoming changes are no-ops, `vfsgazelle` skips the full walk/generate/resolve algorithm entirely
 
 2. unchanged BUILD output is not rewritten
@@ -737,7 +734,7 @@ Or build your own file system service that collects changed repo-relative paths 
 bazel run //vfsgazelle/cmd/gazelle -- rerun <paths...>
 ```
 
-The important point is not the exact Watchman syntax. The important point is that `vfsgazelle` expects a coalesced list of changed repo-relative paths, and it is safe for that list to include some noise because the rerun path does hash checks and no-op filtering.
+The important point is not the exact Watchman syntax. The important point is that `vfsgazelle` expects a coalesced list of changed repo-relative paths, and it is safe for that list to include some noise because the rerun path does semantic no-op filtering for parser-backed files and content checks for control files.
 
 ## Why vfsgazelle Exists
 

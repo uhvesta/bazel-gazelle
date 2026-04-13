@@ -604,14 +604,17 @@ func (imkr inverseMapKindResolver) Imports(c *config.Config, r *rule.Rule, f *ru
 	r = imkr.inverseMapKind(r)
 	return imkr.delegate.Imports(c, r, f)
 }
+
 func (imkr inverseMapKindResolver) Embeds(r *rule.Rule, from label.Label) []label.Label {
 	r = imkr.inverseMapKind(r)
 	return imkr.delegate.Embeds(r, from)
 }
+
 func (imkr inverseMapKindResolver) Resolve(c *config.Config, ix *resolve.RuleIndex, rc *repo.RemoteCache, r *rule.Rule, imports interface{}, from label.Label) {
 	r = imkr.inverseMapKind(r)
 	imkr.delegate.Resolve(c, ix, rc, r, imports, from)
 }
+
 func (imkr inverseMapKindResolver) inverseMapKind(r *rule.Rule) *rule.Rule {
 	rCopy := *r
 	rCopy.SetKind(imkr.fromKind)
