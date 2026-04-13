@@ -104,7 +104,7 @@ The current `vfsgazelle` ordering is:
 2. prime parser cache
 3. freeze snapshot
 4. DFS walk with config propagation
-5. generate rules
+5. generate package results in parallel
 6. build rule index
 7. resolve
 8. emit
@@ -117,6 +117,35 @@ That lets languages use:
 - `PackageDir.Subdirs()`
 
 instead of direct `os.ReadFile` style access.
+
+### Concurrency Model
+
+`vfsgazelle` already uses concurrency in the framework itself.
+
+There are two important layers:
+
+1. VFS build concurrency
+   - worker goroutines read files and parse models
+   - one coordinator owns snapshot membership and cache mutation
+2. run-phase package concurrency
+   - one coordinator goroutine still owns traversal order, config propagation, mapped-kind bookkeeping, and rule-index construction
+   - package-local `Fix` and `GenerateRules` work may run concurrently across different packages
+   - resolve still happens after the full index exists
+
+So the concurrency contract is intentionally asymmetric:
+
+- parent-before-child configuration remains deterministic
+- package-local generation can run in parallel
+- global indexing and resolution stay framework-owned
+
+For plugin authors, this means:
+
+- assume `Fix` and `GenerateRules` may be invoked concurrently for different packages
+- assume `Resolve` may be invoked concurrently for different generated rules
+- avoid mutable shared state on the language object unless you synchronize it yourself
+- strongly prefer stateless logic plus VFS/parser-cache APIs over plugin-managed worker pools
+
+In particular, plugin authors should generally not start their own goroutines for routine file or parser work. `vfsgazelle` already parallelizes the expensive parts of file IO and package generation, and extra goroutines inside plugins usually add contention, duplicate scheduling overhead, and make performance worse rather than better.
 
 ### What The VFS Stores
 

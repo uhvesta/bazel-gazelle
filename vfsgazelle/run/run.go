@@ -141,7 +141,9 @@ func Run(opts Options) (*Result, error) {
 			recordPhase("prime_parsers", time.Now())
 			recordPhase("freeze_vfs", time.Now())
 			recordPhase("prepare_run", time.Now())
-			recordPhase("walk_generate", time.Now())
+			recordPhase("walk_packages", time.Now())
+			recordPhase("generate_packages", time.Now())
+			recordPhase("index_rules", time.Now())
 			recordPhase("resolve", time.Now())
 			recordPhase("emit", time.Now())
 			return &Result{
@@ -178,7 +180,9 @@ func Run(opts Options) (*Result, error) {
 		recordPhase("prime_parsers", time.Now())
 		recordPhase("freeze_vfs", time.Now())
 		recordPhase("prepare_run", time.Now())
-		recordPhase("walk_generate", time.Now())
+		recordPhase("walk_packages", time.Now())
+		recordPhase("generate_packages", time.Now())
+		recordPhase("index_rules", time.Now())
 		recordPhase("resolve", time.Now())
 		recordPhase("emit", time.Now())
 		return &Result{
@@ -343,7 +347,6 @@ func Run(opts Options) (*Result, error) {
 			finishable.DoneGeneratingRules()
 		}
 	}
-
 	if opts.Config.IndexLibraries {
 		phaseStart = time.Now()
 		ruleIndex.Finish()

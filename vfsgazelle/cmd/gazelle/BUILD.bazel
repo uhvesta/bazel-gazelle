@@ -32,7 +32,11 @@ go_test(
     srcs = ["main_test.go"],
     embed = [":gazelle_lib"],
     deps = [
+        "//config",
         "//vfsgazelle/internal/vfs",
+        "//vfsgazelle/language",
+        "//vfsgazelle/language/go",
+        "//vfsgazelle/language/proto",
     ],
 )
 

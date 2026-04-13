@@ -46,7 +46,11 @@ go_test(
     size = "small",
     srcs = ["go_test.go"],
     embed = [":go"],
-    deps = ["//vfsgazelle/internal/vfs"],
+    deps = [
+        "//rule",
+        "//vfsgazelle/internal/vfs",
+        "@com_github_google_go_cmp//cmp",
+    ],
 )
 
 filegroup(

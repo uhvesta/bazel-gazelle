@@ -1,12 +1,19 @@
 package main
 
 import (
+	"bytes"
 	"encoding/json"
+	"flag"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
+	"github.com/uhvesta/bazel-gazelle/config"
 	"github.com/uhvesta/bazel-gazelle/vfsgazelle/internal/vfs"
+	vfsgazellelanguage "github.com/uhvesta/bazel-gazelle/vfsgazelle/language"
+	golang "github.com/uhvesta/bazel-gazelle/vfsgazelle/language/go"
+	"github.com/uhvesta/bazel-gazelle/vfsgazelle/language/proto"
 )
 
 func TestSaveLoadSnapshot(t *testing.T) {
@@ -131,6 +138,68 @@ func TestStateBasePathUsesExplicitStateDir(t *testing.T) {
 	want = filepath.Join(string(os.PathSeparator), "tmp", "cache", "vfsgazelle-state")
 	if got != want {
 		t.Fatalf("stateBasePath(abs) = %q, want %q", got, want)
+	}
+}
+
+func TestHelpForCommandIncludesRegisteredFlags(t *testing.T) {
+	t.Parallel()
+
+	var buf bytes.Buffer
+	langs := []vfsgazellelanguage.Language{
+		proto.NewLanguage(),
+		golang.NewLanguage(),
+	}
+	cfg := config.New()
+	cfg.WorkDir = t.TempDir()
+	var timings bool
+	var stateFormat string
+	var stateDir string
+	fs := newFlagSet(cfg, makeConfigurers(langs), runCmd, &timings, &stateFormat, &stateDir)
+	err := helpForCommand(&buf, runCmd, fs)
+	if err != flag.ErrHelp {
+		t.Fatalf("helpForCommand() err = %v, want %v", err, flag.ErrHelp)
+	}
+
+	out := buf.String()
+	for _, want := range []string{
+		"usage: gazelle-vfsgazelle run [flags]",
+		"-state_dir",
+		"-state_format",
+		"-timings",
+		"-go_prefix",
+		"-lang",
+		"-exclude",
+		"-build_file_name",
+		"-proto",
+	} {
+		if !strings.Contains(out, want) {
+			t.Fatalf("help output missing %q:\n%s", want, out)
+		}
+	}
+}
+
+func TestNewFlagSetBindsParsedValues(t *testing.T) {
+	t.Parallel()
+
+	cfg := config.New()
+	cfg.WorkDir = t.TempDir()
+
+	var timings bool
+	var stateFormat string
+	var stateDir string
+	fs := newFlagSet(cfg, makeConfigurers(nil), runCmd, &timings, &stateFormat, &stateDir)
+	if err := fs.Parse([]string{"-timings", "-state_format", "json", "-state_dir", "cache"}); err != nil {
+		t.Fatal(err)
+	}
+
+	if !timings {
+		t.Fatal("timings = false, want true")
+	}
+	if stateFormat != "json" {
+		t.Fatalf("stateFormat = %q, want json", stateFormat)
+	}
+	if stateDir != "cache" {
+		t.Fatalf("stateDir = %q, want cache", stateDir)
 	}
 }
 

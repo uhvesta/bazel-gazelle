@@ -58,26 +58,19 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 		return err
 	}
 	if cmd == helpCmd {
-		return help()
+		return helpForArgs(os.Stderr, wd, cmdArgs, langs)
 	}
 
 	cfg := config.New()
 	cfg.WorkDir = wd
 
 	configurers := makeConfigurers(langs)
-	fs := flag.NewFlagSet("gazelle-vfsgazelle", flag.ContinueOnError)
 	var timings bool
 	var stateFormat string
 	var stateDir string
-	fs.BoolVar(&timings, "timings", false, "print per-phase vfsgazelle run timings to stderr")
-	fs.StringVar(&stateFormat, "state_format", string(vfs.StateFormatGob), "persisted vfsgazelle state format: gob or json")
-	fs.StringVar(&stateDir, "state_dir", "", "directory where persisted vfsgazelle state files should be read and written")
+	fs := newFlagSet(cfg, configurers, cmd, &timings, &stateFormat, &stateDir)
 	fs.Usage = func() {
-		_ = help()
-	}
-	flagMode := cmd.generationFlagMode()
-	for _, cext := range configurers {
-		cext.RegisterFlags(fs, flagMode, cfg)
+		_ = helpForCommand(os.Stderr, cmd, fs)
 	}
 	if err := fs.Parse(cmdArgs); err != nil {
 		return err
@@ -158,6 +151,18 @@ func runCLI(wd string, args []string, langs []vfsgazellelanguage.Language) error
 	return saveSnapshot(stateBase, result.Snapshot, vfs.StateFormat(stateFormat))
 }
 
+func newFlagSet(cfg *config.Config, configurers []config.Configurer, cmd command, timings *bool, stateFormat *string, stateDir *string) *flag.FlagSet {
+	fs := flag.NewFlagSet("gazelle-vfsgazelle", flag.ContinueOnError)
+	fs.BoolVar(timings, "timings", false, "print per-phase vfsgazelle run timings to stderr")
+	fs.StringVar(stateFormat, "state_format", string(vfs.StateFormatGob), "persisted vfsgazelle state format: gob or json")
+	fs.StringVar(stateDir, "state_dir", "", "directory where persisted vfsgazelle state files should be read and written")
+	flagMode := cmd.generationFlagMode()
+	for _, cext := range configurers {
+		cext.RegisterFlags(fs, flagMode, cfg)
+	}
+	return fs
+}
+
 func makeConfigurers(langs []vfsgazellelanguage.Language) []config.Configurer {
 	configurers := []config.Configurer{
 		&config.CommonConfigurer{},
@@ -170,8 +175,50 @@ func makeConfigurers(langs []vfsgazellelanguage.Language) []config.Configurer {
 	return configurers
 }
 
-func help() error {
-	fmt.Fprint(os.Stderr, `usage: gazelle-vfsgazelle <command> [flags]
+func helpForArgs(w io.Writer, wd string, args []string, langs []vfsgazellelanguage.Language) error {
+	if len(args) == 0 {
+		return help(w)
+	}
+	cfg := config.New()
+	cfg.WorkDir = wd
+	configurers := makeConfigurers(langs)
+	var timings bool
+	var stateFormat string
+	var stateDir string
+	switch args[0] {
+	case "run":
+		fs := newFlagSet(cfg, configurers, runCmd, &timings, &stateFormat, &stateDir)
+		return helpForCommand(w, runCmd, fs)
+	case "rerun":
+		fs := newFlagSet(cfg, configurers, rerunCmd, &timings, &stateFormat, &stateDir)
+		return helpForCommand(w, rerunCmd, fs)
+	default:
+		return help(w)
+	}
+}
+
+func helpForCommand(w io.Writer, cmd command, fs *flag.FlagSet) error {
+	if fs == nil {
+		return help(w)
+	}
+	fmt.Fprintf(w, "usage: gazelle-vfsgazelle %s [flags]\n\n", cmd.String())
+	switch cmd {
+	case runCmd:
+		fmt.Fprintln(w, "Build the VFS snapshot, then run the whole-repo vfsgazelle pipeline.")
+	case rerunCmd:
+		fmt.Fprintln(w, "Load saved vfsgazelle state, patch changed paths, then run the whole-repo vfsgazelle pipeline.")
+	default:
+		return help(w)
+	}
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "Flags:")
+	fs.SetOutput(w)
+	fs.PrintDefaults()
+	return flag.ErrHelp
+}
+
+func help(w io.Writer) error {
+	fmt.Fprint(w, `usage: gazelle-vfsgazelle <command> [flags]
 
 Gazelle vfsgazelle runs the snapshot-backed VFS pipeline with the configured vfsgazelle languages.
 

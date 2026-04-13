@@ -5,8 +5,11 @@ import (
 	"flag"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"github.com/uhvesta/bazel-gazelle/config"
 	"github.com/uhvesta/bazel-gazelle/resolve"
@@ -127,7 +130,7 @@ func (*fakeLang) Resolve(args v3language.ResolveArgs) {
 
 type lifecycleLang struct {
 	v3language.BaseLang
-	doneCalled    bool
+	doneCalled     bool
 	resolveSawDone bool
 }
 
@@ -300,6 +303,74 @@ func TestRunCallsDoneGeneratingRulesBeforeResolveAndUsesApparentLoads(t *testing
 	}
 	if got := emitted[""]; !strings.Contains(got, "@custom_gazelle//:defs.bzl") {
 		t.Fatalf("expected apparent load label in output, got:\n%s", got)
+	}
+}
+
+type concurrentLang struct {
+	v3language.BaseLang
+	inFlight  atomic.Int32
+	maxFlight atomic.Int32
+}
+
+func (*concurrentLang) Name() string { return "concurrent" }
+
+func (*concurrentLang) Kinds() map[string]rule.KindInfo {
+	return map[string]rule.KindInfo{
+		"filegroup": {
+			NonEmptyAttrs: map[string]bool{"srcs": true},
+			MergeableAttrs: map[string]bool{"srcs": true},
+		},
+	}
+}
+
+func (l *concurrentLang) GenerateRules(args v3language.GenerateArgs) v3language.GenerateResult {
+	cur := l.inFlight.Add(1)
+	defer l.inFlight.Add(-1)
+	for {
+		prev := l.maxFlight.Load()
+		if cur <= prev || l.maxFlight.CompareAndSwap(prev, cur) {
+			break
+		}
+	}
+	time.Sleep(20 * time.Millisecond)
+	r := rule.NewRule("filegroup", strings.ReplaceAll(args.Rel, "/", "_"))
+	r.SetAttr("srcs", []string{"BUILD.bazel"})
+	return v3language.GenerateResult{
+		Gen:     []*rule.Rule{r},
+		Imports: []interface{}{nil},
+	}
+}
+
+func TestRunGeneratesPackagesConcurrently(t *testing.T) {
+	if runtime.GOMAXPROCS(0) < 2 {
+		t.Skip("requires at least 2 OS threads")
+	}
+
+	root := t.TempDir()
+	writeRunFile(t, filepath.Join(root, "BUILD.bazel"), "")
+	for _, dir := range []string{"a", "b", "c", "d"} {
+		writeRunFile(t, filepath.Join(root, dir, "BUILD.bazel"), "")
+	}
+
+	cfg := config.New()
+	cfg.RepoRoot = root
+	cfg.RepoName = "repo"
+	cfg.ValidBuildFileNames = []string{"BUILD.bazel", "BUILD"}
+	cfg.IndexLibraries = true
+
+	lang := &concurrentLang{}
+	_, err := Run(Options{
+		Config:    cfg,
+		Languages: []v3language.Language{lang},
+		Emit: func(c *config.Config, f *rule.File) error {
+			return nil
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := lang.maxFlight.Load(); got < 2 {
+		t.Fatalf("expected concurrent GenerateRules calls, max in flight = %d", got)
 	}
 }
 
